@@ -4,7 +4,7 @@
 //===========================================================================
 
 module int_distributor_posedge_sva #(
-    parameter int INT_VALID_MIN_DELAY = 5
+    parameter int EDGE_DETEC_SYNC_NUM = 2
 )(
     input  logic        clk,
     input  logic        rstn,
@@ -15,31 +15,42 @@ module int_distributor_posedge_sva #(
     input  logic [63:0] edge_rise_cnt,
     input  logic [63:0] edge_fall_cnt
 );
-    // 约束: 两个有效中断(上升沿)之间的间隔大于 INT_VALID_MIN_DELAY
+    localparam INT_MIN_GAP = EDGE_DETEC_SYNC_NUM+4;
+    logic rstn_d1;
+    always_ff @(posedge clk or negedge rstn) begin
+        if (!rstn)
+            rstn_d1 <= 1'b0;
+        else
+            rstn_d1 <= 1'b1;
+    end
+
+    // 约束: 两个有效中断(上升沿)之间的间隔大于 INT_MIN_GAP
     property p_min_delay;
-        @(posedge clk) disable iff (!rstn)
-        $rose(posedge_bit) |-> ##1 (!($rose(posedge_bit)) [*INT_VALID_MIN_DELAY-1]);
+        @(posedge clk) disable iff (!rstn_d1)
+        $rose(posedge_bit) |-> ##1 (!($rose(posedge_bit)) [*INT_MIN_GAP-1]);
     endproperty
     asm_min_delay: assume property (p_min_delay);
 
     property p_rise;
-        @(posedge clk) disable iff (!rstn)
+        @(posedge clk) disable iff (!rstn_d1)
         $rose(posedge_bit) |-> $rose(edge_bit);
     endproperty
     ast_rise: assert property (p_rise);
 
     property p_rise_count;
-        @(posedge clk) disable iff (!rstn)
+        @(posedge clk) disable iff (!rstn_d1)
         posedge_rise_cnt == edge_rise_cnt;
     endproperty
     ast_rise_count: assert property (p_rise_count);
 
     cov_rise: cover property (@(posedge clk) disable iff (!rstn) $rose(posedge_bit));
     cov_fall: cover property (@(posedge clk) disable iff (!rstn) $fell(posedge_bit));
+    cov_min_gap_posedge: cover property (@(posedge clk) disable iff (!rstn_d1)
+        $rose(posedge_bit) ##1 (!($rose(posedge_bit)) [*INT_MIN_GAP-1]) ##1 $rose(posedge_bit));
 endmodule
 
 module int_distributor_negedge_sva #(
-    parameter int INT_VALID_MIN_DELAY = 5
+    parameter int EDGE_DETEC_SYNC_NUM = 2
 )(
     input  logic        clk,
     input  logic        rstn,
@@ -50,27 +61,38 @@ module int_distributor_negedge_sva #(
     input  logic [63:0] edge_rise_cnt,
     input  logic [63:0] edge_fall_cnt
 );
-    // 约束: 两个有效中断(下降沿)之间的间隔大于 INT_VALID_MIN_DELAY
+    localparam INT_MIN_GAP = EDGE_DETEC_SYNC_NUM+4;
+    logic rstn_d1;
+    always_ff @(posedge clk or negedge rstn) begin
+        if (!rstn)
+            rstn_d1 <= 1'b0;
+        else
+            rstn_d1 <= 1'b1;
+    end
+
+    // 约束: 两个有效中断(下降沿)之间的间隔大于 INT_MIN_GAP
     property p_min_delay;
-        @(posedge clk) disable iff (!rstn)
-        $fell(negedge_bit) |-> ##1 (!($fell(negedge_bit)) [*INT_VALID_MIN_DELAY-1]);
+        @(posedge clk) disable iff (!rstn_d1)
+        $fell(negedge_bit) |-> ##1 (!($fell(negedge_bit)) [*INT_MIN_GAP-1]);
     endproperty
     asm_min_delay: assume property (p_min_delay);
 
     property p_fall_to_rise;
-        @(posedge clk) disable iff (!rstn)
+        @(posedge clk) disable iff (!rstn_d1)
         $fell(negedge_bit) |-> $rose(edge_bit);
     endproperty
     ast_fall_to_rise: assert property (p_fall_to_rise);
 
     property p_fall_count;
-        @(posedge clk) disable iff (!rstn)
+        @(posedge clk) disable iff (!rstn_d1)
         negedge_fall_cnt == edge_rise_cnt;
     endproperty
     ast_fall_count: assert property (p_fall_count);
 
     cov_rise: cover property (@(posedge clk) disable iff (!rstn) $rose(negedge_bit));
     cov_fall: cover property (@(posedge clk) disable iff (!rstn) $fell(negedge_bit));
+    cov_min_gap_negedge: cover property (@(posedge clk) disable iff (!rstn_d1)
+        $fell(negedge_bit) ##1 (!($fell(negedge_bit)) [*INT_MIN_GAP-1]) ##1 $fell(negedge_bit));
 endmodule
 
 module int_distributor_high_level_sva (
@@ -206,7 +228,7 @@ module int_distributor_sva #(
                     ? ($countones(NEG_EDGE_INT_BITMAP) + $countones(POS_EDGE_INT_BITMAP[i:0]) - 1)
                     : ($countones(POS_EDGE_INT_BITMAP[i:0]) - 1);
                 int_distributor_posedge_sva #(
-                    .INT_VALID_MIN_DELAY(POS_EDGE_INT_VALID_MIN_DELAY)
+                    .EDGE_DETEC_SYNC_NUM(POS_EDGE_INT_VALID_MIN_DELAY)
                 ) u_posedge_sva (
                     .clk             (apb_clk),
                     .rstn            (apb_rstn),
@@ -231,7 +253,7 @@ module int_distributor_sva #(
                     ? ($countones(NEG_EDGE_INT_BITMAP[i:0]) - 1)
                     : ($countones(POS_EDGE_INT_BITMAP) + $countones(NEG_EDGE_INT_BITMAP[i:0]) - 1);
                 int_distributor_negedge_sva #(
-                    .INT_VALID_MIN_DELAY(NEG_EDGE_INT_VALID_MIN_DELAY)
+                    .EDGE_DETEC_SYNC_NUM(NEG_EDGE_INT_VALID_MIN_DELAY)
                 ) u_negedge_sva (
                     .clk             (apb_clk),
                     .rstn            (apb_rstn),
