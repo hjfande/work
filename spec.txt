@@ -1,0 +1,20 @@
+设计名为中断分发器
+port：
+input apb_clk
+input apb_rstn
+input logic [POS_EDGE_INT_NUM-1:0] posedge_int_bus
+input logic [NEG_EDGE_INT_NUM-1:0] negedge_int_bus
+input logic [HIGH_LEVEL_INT_NUM-1:0] high_level_int_bus
+input logic [LOW_LEVEL_INT_NUM-1:0] low_level_int_bus
+output logic [POS_EDGE_INT_NUM+NEG_EDGE_INT_NUM-1:0] edge_int_to_ic
+output logic [HIGH_LEVEL_INT_NUM+LOW_LEVEL_INT_NUM-1:0] level_int_to_ic
+output logic [(HIGH_LEVEL_INT_NUM+LOW_LEVEL_INT_NUM)/32-1:0] merge_int_to_ic
+
+port说明：
+posedge_int_bus：上升沿中断输入
+negedge_int_bus：下降升沿中断输入
+high_level_int_bus：高电平中断输入
+negedge_int_bus：低电平中断输入
+edge_int_to_ic：边沿中断输出，posedge_int_bus+negedge_int_bus，下降升沿中断输入被转换为上升沿
+level_int_to_ic：电平中断输出，high_level_int_bus+low_level_int_bus, 低电平转换为高电平
+merge_int_to_ic：聚合中断输出，high_level_int_bus+low_level_int_bus, 低电平转换为高电平，每32bit聚合为1bit
