@@ -617,7 +617,10 @@ foreach my $design_name (sort keys %all_mapping) {
             print $bind_fh "    .merge_int_to_ic    (),\n";
         }
         
-        print $bind_fh "    .merge_int_bus      (`$merge_bus_macro_name)\n";
+        print $bind_fh "    .merge_int_bus      (`$merge_bus_macro_name),\n";
+        print $bind_fh "    .dft_dc_scan_clk    (dft_dc_scan_clk),\n";
+        print $bind_fh "    .dft_dc_scan_mode   (dft_dc_scan_mode),\n";
+        print $bind_fh "    .dft_dc_scan_rst_n  (dft_dc_scan_rst_n)\n";
         print $bind_fh ");\n\n";
     }
 }
