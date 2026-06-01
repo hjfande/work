@@ -220,7 +220,7 @@ def parse_cfg_sheet(excel_path):
             if key:
                 raw_cfg[key] = cells.get('B', '')
 
-    return CFG(raw_cfg.get('SYS_NAME', ''))
+    return CFG(raw_cfg.get('SYS_NAME', '').lower())
 
 
 # ============================================================================
