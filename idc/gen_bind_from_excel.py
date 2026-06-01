@@ -82,9 +82,18 @@ class IntrInfo:
                 f"regbank_merge_int_hier={self.regbank_merge_int_hier!r})")
 
 
-class CFG(dict):
+class CFG:
+    def __init__(self, sys_name=''):
+        self.sys_name = sys_name
+        self.wrap_name = f"{sys_name}_idc_wrap"
+        self.ctrl_name = f"{sys_name}_intr_distribute_ctrl"
+        self.regbank_name = f"{sys_name}_idc_reg_bank"
+        self.ic_prefix = f"{sys_name}_int_bus_to"
+
     def __repr__(self):
-        return f"CFG({dict(self)!r})"
+        return (f"CFG(sys_name={self.sys_name!r}, wrap_name={self.wrap_name!r}, "
+                f"ctrl_name={self.ctrl_name!r}, regbank_name={self.regbank_name!r}, "
+                f"ic_prefix={self.ic_prefix!r})")
 
 
 
@@ -151,9 +160,9 @@ def get_cell_value(cell, shared_strings):
 def parse_cfg_sheet(excel_path):
     """
     Parse the 'CFG' sheet from an .xlsx file.
-    Returns a CFG object: {A-column: B-column} starting from row 2 (skip header).
+    Returns a CFG object with sys_name extracted from the sheet.
     """
-    cfg = CFG()
+    raw_cfg = {}
 
     with zipfile.ZipFile(excel_path, 'r') as zf:
         wb_xml = zf.read('xl/workbook.xml')
@@ -209,9 +218,9 @@ def parse_cfg_sheet(excel_path):
 
             key = cells.get('A', '')
             if key:
-                cfg[key] = cells.get('B', '')
+                raw_cfg[key] = cells.get('B', '')
 
-    return cfg
+    return CFG(raw_cfg.get('SYS_NAME', ''))
 
 
 # ============================================================================
@@ -457,8 +466,7 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
         f.write("// Do NOT edit manually\n")
         f.write("// ============================================================================\n\n")
 
-        sys_name = cfg.get('SYS_NAME', '')
-        out_prefix = f"{sys_name}_int_bus_to"
+        sys_name = cfg.sys_name
 
         for info in intr.intr_info_list:
             int_type = info.get('INT_TYPE', '')
@@ -467,8 +475,7 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
 
             port_in = info.port_in_name
             edge_in_conn = f"~{port_in}" if int_type == 'NEGEDGE' else port_in
-            sync_num = cfg.get('POS_EDGE_SYNC_NUM' if int_type == 'POSEDGE'
-                               else 'NEG_EDGE_SYNC_NUM', '2')
+            sync_num = '2'
 
             merge_group_num = (intr.high_cnt + intr.low_cnt + 31) // 32
             for po in info.port_out_info_list:
@@ -476,12 +483,12 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 ic_bit = po.ic_bit
                 level_cnt = intr.level_cnt_per_ic.get(ic_name, 0)
                 bit_idx = merge_group_num + level_cnt + ic_bit
-                async_edge = f"{out_prefix}_{ic_name}[{bit_idx}]".lower()
+                async_edge = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
                 inst_name = (f"u_edge_detect_fpv_"
                              f"{int_type.lower()}{info.int_type_in_bit_num}_ic{po.ic_num}_{port_in}")
 
-                f.write(f"bind `DESIGN_NAME edge_detect_fpv #(\n")
+                f.write(f"bind {cfg.wrap_name} edge_detect_fpv #(\n")
                 f.write(f"    .SYNC_NUM({sync_num})\n")
                 f.write(f") {inst_name} (\n")
                 f.write(f"    .clk               (apb_clk),\n")
@@ -511,12 +518,12 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 ic_name = po.ic_name
                 ic_bit = po.ic_bit
                 bit_idx = merge_group_num + ic_bit
-                level_sig = f"{out_prefix}_{ic_name}[{bit_idx}]".lower()
+                level_sig = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
                 inst_name = (f"u_{module_name}_"
                              f"{int_type.lower()}{info.int_type_in_bit_num}_ic{po.ic_num}_{port_in}")
 
-                f.write(f"bind `DESIGN_NAME {module_name} {inst_name} (\n")
+                f.write(f"bind {cfg.wrap_name} {module_name} {inst_name} (\n")
                 f.write(f"    .clk        (apb_clk),\n")
                 f.write(f"    .rst_n      (apb_rstn),\n")
                 f.write(f"    .{level_port} ({port_in}),\n")
@@ -550,10 +557,10 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 merge_bus_regbank = "{" + ", ".join(reversed(regbank_list)) + "}"
 
             for ic_name in intr.ic_list:
-                merge_ic_bit = f"{out_prefix}_{ic_name}[{gid}]".lower()
+                merge_ic_bit = f"{cfg.ic_prefix}_{ic_name}[{gid}]".lower()
                 inst_name = f"u_merge_sva_group{gid}_{ic_name}"
 
-                f.write(f"bind `DESIGN_NAME merge_sva #(\n")
+                f.write(f"bind {cfg.wrap_name} merge_sva #(\n")
                 f.write(f"    .BUS_WIDTH({width})\n")
                 f.write(f") {inst_name} (\n")
                 f.write(f"    .clk               (apb_clk),\n")
@@ -595,9 +602,8 @@ def main():
     try:
         # --- Step 1: CFG ---
         cfg = parse_cfg_sheet(excel_path)
-        print(f"[INFO] CFG sheet parsed, {len(cfg)} entries:")
-        for k, v in cfg.items():
-            print(f"  {k} = {v}")
+        print(f"[INFO] CFG parsed: {cfg}")
+        sys_name = cfg.sys_name
 
         # --- Step 2: intr_info ---
         intr = parse_intr_sheet(excel_path)
@@ -621,7 +627,6 @@ def main():
             print(f"  ... ({len(intr.intr_info_list) - 5} more rows)")
 
         # --- Step 4: Assign regbank_merge_int_hier for HIGH/LOW types ---
-        sys_name = cfg.get('SYS_NAME', '')
         for info in intr.intr_info_list:
             if info.get('INT_TYPE', '') in ('HIGH', 'LOW'):
                 info.regbank_merge_int_hier = (
