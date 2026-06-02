@@ -1,24 +1,55 @@
+module edge_detect_fpv_wrap #(
+    parameter int SYNC_NUM = 2
+)(
+    input  logic clk,
+    input  logic rst_n,
+    input  logic edge_in,
+    input  logic async_edge,
+    input  logic edge_stb,
+    input  logic dft_dc_scan_clk,
+    input  logic dft_dc_scan_mode,
+    input  logic dft_dc_scan_rst_n
+);
+
+    edge_detect_fpv #(
+        .SYNC_NUM(SYNC_NUM)
+    ) u_edge_detect_fpv (
+        .clk               (clk),
+        .rst_n             (rst_n),
+        .edge_in           (edge_in),
+        .async_edge        (async_edge),
+        .edge_stb          (edge_stb),
+        .dft_dc_scan_clk   (dft_dc_scan_clk),
+        .dft_dc_scan_mode  (dft_dc_scan_mode),
+        .dft_dc_scan_rst_n (dft_dc_scan_rst_n)
+    );
+
+endmodule
+
 module high_checker (
     input  logic clk,
     input  logic rst_n,
     input  logic high_in,
     input  logic level_to_ic
 );
-    always_comb begin
-        ast_eq: assert (high_in == level_to_ic);
-    end
-
-    property p_rose;
-        @(posedge high_in) disable iff (!rst_n)
-        1;
+    property p_eq (in, out);
+        @(posedge clk) disable iff (!rst_n)
+        $changed(in) |-> in == out
     endproperty
-    cov_rose: cover property (p_rose);
 
-    property p_fell;
-        @(negedge high_in) disable iff (!rst_n)
-        1;
+    property p_rose(in);
+        @(posedge clk) disable iff (!rst_n)
+        $rose(in);
     endproperty
-    cov_fell: cover property (p_fell);
+
+    property p_fell(in);
+        @(posedge clk) disable iff (!rst_n)
+        $fell(in);
+    endproperty
+
+    ast_eq: assert property (p_eq(high_in, level_to_ic));
+    cov_rose: cover property (p_rose(high_in));
+    cov_fell: cover property (p_fell(high_in));
 endmodule
 
 module low_checker (
@@ -27,21 +58,24 @@ module low_checker (
     input  logic low_in,
     input  logic level_to_ic
 );
-    always_comb begin
-        ast_eq: assert (low_in == ~level_to_ic);
-    end
-
-    property p_rose;
-        @(posedge low_in) disable iff (!rst_n)
-        1;
+    property p_eq_inv (in, out);
+        @(posedge clk) disable iff (!rst_n)
+        $changed(in) |-> in == ~out
     endproperty
-    cov_rose: cover property (p_rose);
 
-    property p_fell;
-        @(negedge low_in) disable iff (!rst_n)
-        1;
+    property p_rose(in);
+        @(posedge clk) disable iff (!rst_n)
+        $rose(in);
     endproperty
-    cov_fell: cover property (p_fell);
+
+    property p_fell(in);
+        @(posedge clk) disable iff (!rst_n)
+        $fell(in);
+    endproperty
+
+    ast_eq: assert property (p_eq_inv(low_in, level_to_ic));
+    cov_rose: cover property (p_rose(low_in));
+    cov_fell: cover property (p_fell(low_in));
 endmodule
 
 module merge_checker #(
@@ -59,20 +93,23 @@ module merge_checker #(
 
     logic merge_regbank_bit;
     assign merge_regbank_bit = |group_regbank;
-    always_comb begin
-        ast_regbank_to_ic_eq: assert (merge_regbank_bit == merge_to_ic);
-    end
+
+    property p_eq (in, out);
+        @(posedge clk) disable iff (!rst_n)
+        $changed(in) |-> in == out
+    endproperty
 
     property p_rose(in);
-        @(posedge in) disable iff (!rst_n)
-        1;
+        @(posedge clk) disable iff (!rst_n)
+        $rose(in);
     endproperty
 
     property p_fell(in);
-        @(negedge in) disable iff (!rst_n)
-        1;
+        @(posedge clk) disable iff (!rst_n)
+        $fell(in);
     endproperty
 
-    cov_regbank_rose: cover property (p_rose(merge_regbank_bit));
-    cov_regbank_fell: cover property (p_fell(merge_regbank_bit));
+    ast_eq_regbank2ic: assert property (p_eq(merge_regbank_bit, merge_to_ic));
+    cov_rose_regbank2ic: cover property (p_rose(merge_regbank_bit));
+    cov_fell_regbank2ic: cover property (p_fell(merge_regbank_bit));
 endmodule

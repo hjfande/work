@@ -458,7 +458,7 @@ def parse_intr_sheet(excel_path):
 def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
     """
     Generate bind_idc_wrap.sv for POSEDGE/NEGEDGE intr entries.
-    One edge_detect_fpv instance per port_out_info.
+    One edge_detect_fpv_wrap instance per port_out_info.
     """
     with open(output_file, 'w') as f:
         f.write("// ============================================================================\n")
@@ -493,10 +493,10 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 bit_idx = merge_int_num + level_cnt + ic_bit
                 async_edge = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
-                inst_name = (f"u_edge_detect_fpv_"
+                inst_name = (f"u_edge_detect_fpv_wrap_"
                              f"{int_type.lower()}{info.int_type_in_bit_num}_ic{po.ic_num}_{port_in}")
 
-                f.write(f"bind {cfg.wrap_name} edge_detect_fpv #(\n")
+                f.write(f"bind {cfg.wrap_name} edge_detect_fpv_wrap #(\n")
                 f.write(f"    .SYNC_NUM({sync_num})\n")
                 f.write(f") {inst_name} (\n")
                 f.write(f"    .clk               (apb_clk),\n")
