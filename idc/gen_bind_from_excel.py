@@ -466,7 +466,15 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
         f.write("// Do NOT edit manually\n")
         f.write("// ============================================================================\n\n")
 
-        sys_name = cfg.sys_name
+        f.write(f"`define REGBANK {cfg.wrap_name}.u_{cfg.ctrl_name}.u_{cfg.sys_name}_idc_regbank\n\n")
+
+        # Assign regbank_merge_int_hier for HIGH/LOW types
+        for info in intr.intr_info_list:
+            if info.get('INT_TYPE', '') in ('HIGH', 'LOW'):
+                info.regbank_merge_int_hier = (
+                    f"`REGBANK.{cfg.sys_name.lower()}_ic``ic_num``_merge_int"
+                    f"{info.merge_group_idx}_{info.port_in_name}_rdat"
+                )
 
         for info in intr.intr_info_list:
             int_type = info.get('INT_TYPE', '')
@@ -477,12 +485,12 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
             edge_in_conn = f"~{port_in}" if int_type == 'NEGEDGE' else port_in
             sync_num = '2'
 
-            merge_group_num = (intr.high_cnt + intr.low_cnt + 31) // 32
+            merge_int_num = (intr.high_cnt + intr.low_cnt + 31) // 32
             for po in info.port_out_info_list:
                 ic_name = po.ic_name
                 ic_bit = po.ic_bit
                 level_cnt = intr.level_cnt_per_ic.get(ic_name, 0)
-                bit_idx = merge_group_num + level_cnt + ic_bit
+                bit_idx = merge_int_num + level_cnt + ic_bit
                 async_edge = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
                 inst_name = (f"u_edge_detect_fpv_"
@@ -495,7 +503,12 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 f.write(f"    .rst_n             (apb_rstn),\n")
                 f.write(f"    .edge_in           ({edge_in_conn}),\n")
                 f.write(f"    .async_edge        ({async_edge}),\n")
-                f.write(f"    .edge_stb          (1'b1),\n")
+                edge_det_prefix = 'pos' if int_type == 'POSEDGE' else 'neg'
+                edge_det_module = 'posedge' if int_type == 'POSEDGE' else 'negedge'
+                edge_stb_conn = (f"{cfg.wrap_name}.u_{cfg.ctrl_name}."
+                                 f"gen_{edge_det_prefix}_int_edge_det.bit_inst[{info.int_type_in_bit_num}]."
+                                 f"u_{edge_det_module}_detect.edge_stb")
+                f.write(f"    .edge_stb          ({edge_stb_conn}),\n")
                 f.write(f"    .dft_dc_scan_clk   (dft_dc_scan_clk),\n")
                 f.write(f"    .dft_dc_scan_mode  (dft_dc_scan_mode),\n")
                 f.write(f"    .dft_dc_scan_rst_n (dft_dc_scan_rst_n)\n")
@@ -509,15 +522,15 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
 
             port_in = info.port_in_name
             module_name = ('high_checker' if int_type == 'HIGH' else 'low_checker')
-            level_port = ('high_level_bit'
+            level_port = ('high_in'
                           if int_type == 'HIGH'
-                          else 'low_level_bit')
+                          else 'low_in')
 
-            merge_group_num = (intr.high_cnt + intr.low_cnt + 31) // 32
+            merge_int_num = (intr.high_cnt + intr.low_cnt + 31) // 32
             for po in info.port_out_info_list:
                 ic_name = po.ic_name
                 ic_bit = po.ic_bit
-                bit_idx = merge_group_num + ic_bit
+                bit_idx = merge_int_num + ic_bit
                 level_sig = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
                 inst_name = (f"u_{module_name}_"
@@ -527,7 +540,7 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 f.write(f"    .clk        (apb_clk),\n")
                 f.write(f"    .rst_n      (apb_rstn),\n")
                 f.write(f"    .{level_port} ({port_in}),\n")
-                f.write(f"    .level_bit  ({level_sig})\n")
+                f.write(f"    .level_to_ic  ({level_sig})\n")
                 f.write(f");\n\n")
 
         # --- Bind merge checks ---
@@ -538,7 +551,7 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
             gid = info.merge_group_idx
             if gid < 0:
                 continue
-            regbank = info.regbank_merge_int_hier.replace('``ic_num``', str(gid))
+            regbank = info.regbank_merge_int_hier
             merge_groups.setdefault(gid, []).append({
                 'port_in': info.port_in_name,
                 'regbank': regbank
@@ -550,27 +563,28 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
             regbank_list = [e['regbank'] for e in entries]
 
             if width == 1:
-                merge_bus = port_list[0]
-                merge_bus_regbank = regbank_list[0]
+                group_in = port_list[0]
+                group_regbank = regbank_list[0]
             else:
-                merge_bus = "{" + ", ".join(reversed(port_list)) + "}"
-                merge_bus_regbank = "{" + ", ".join(reversed(regbank_list)) + "}"
+                group_in = "{" + ", ".join(reversed(port_list)) + "}"
+                group_regbank = "{" + ", ".join(reversed(regbank_list)) + "}"
 
-            for ic_name in intr.ic_list:
-                merge_ic_bit = f"{cfg.ic_prefix}_{ic_name}[{gid}]".lower()
-                inst_name = f"u_merge_sva_group{gid}_{ic_name}"
+            for ic_num, ic_name in enumerate(intr.ic_list):
+                group_regbank_ic = group_regbank.replace('``ic_num``', str(ic_num))
+                merge_to_ic = f"{cfg.ic_prefix}_{ic_name}[{gid}]".lower()
+                inst_name = f"u_merge_checker_ic{ic_num}_group{gid}_{ic_name.lower()}"
 
-                f.write(f"bind {cfg.wrap_name} merge_sva #(\n")
+                f.write(f"bind {cfg.wrap_name} merge_checker #(\n")
                 f.write(f"    .BUS_WIDTH({width})\n")
-                f.write(f") {inst_name} (\n")
+                f.write(f") {inst_name} ( // {ic_name.lower()}\n")
                 f.write(f"    .clk               (apb_clk),\n")
                 f.write(f"    .rst_n             (apb_rstn),\n")
-                f.write(f"    .merge_bus_regbank ({merge_bus_regbank}),\n")
-                f.write(f"    .merge_ic_bit      ({merge_ic_bit}),\n")
-                f.write(f"    .merge_bus         ({merge_bus}),\n")
-                f.write(f"    .merge_bus_enable  ({width}'b0),\n")
-                f.write(f"    .merge_bus_mask    ({width}'b0),\n")
-                f.write(f"    .merge_bus_set     ({width}'b0)\n")
+                f.write(f"    .group_regbank ({group_regbank_ic}),\n")
+                f.write(f"    .merge_to_ic      ({merge_to_ic}),\n")
+                f.write(f"    .group_in      ({group_in}),\n")
+                f.write(f"    .group_enable  ({width}'b0),\n")
+                f.write(f"    .group_mask    ({width}'b0),\n")
+                f.write(f"    .group_set     ({width}'b0)\n")
                 f.write(f");\n\n")
 
         f.write("// ============================================================================\n")
@@ -603,7 +617,6 @@ def main():
         # --- Step 1: CFG ---
         cfg = parse_cfg_sheet(excel_path)
         print(f"[INFO] CFG parsed: {cfg}")
-        sys_name = cfg.sys_name
 
         # --- Step 2: intr_info ---
         intr = parse_intr_sheet(excel_path)
@@ -626,15 +639,7 @@ def main():
         if len(intr.intr_info_list) > 5:
             print(f"  ... ({len(intr.intr_info_list) - 5} more rows)")
 
-        # --- Step 4: Assign regbank_merge_int_hier for HIGH/LOW types ---
-        for info in intr.intr_info_list:
-            if info.get('INT_TYPE', '') in ('HIGH', 'LOW'):
-                info.regbank_merge_int_hier = (
-                    f"`REG_BANK.{sys_name.lower()}_ic``ic_num``_merge_int"
-                    f"{info.merge_group_idx}_{info.port_in_name}_rdat"
-                )
-
-        # --- Step 6: Generate bind_idc_wrap.sv ---
+        # --- Step 3: Generate bind_idc_wrap.sv ---
         generate_bind_sva(intr, cfg)
 
         return 0

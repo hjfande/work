@@ -2,7 +2,7 @@
 #============================================================================
 # bind_gen.perl
 #   搜索 _idc_wrap.v 文件，提取中断映射关系
-#   生成 bind int_distributor_sva 实例 (每ic编号一个实例)
+#   生成 bind idc_wrap_ast 实例 (每ic编号一个实例)
 #   用法: perl bind_gen.perl <input_path>
 #============================================================================
 use strict;
@@ -468,7 +468,7 @@ foreach my $design_name (sort keys %all_mapping) {
     next if scalar keys %ic_numbers == 0;
     
     print $bind_fh "// ============================================================================\n";
-    print $bind_fh "// Bind int_distributor_sva for DESIGN: $design_name\n";
+    print $bind_fh "// Bind idc_wrap_ast for DESIGN: $design_name\n";
     print $bind_fh "// ============================================================================\n\n";
     
     # 预计算总线拼接（输入直接绑定到全部实例，不过滤）
@@ -514,7 +514,7 @@ foreach my $design_name (sort keys %all_mapping) {
     
     # 为每个 ic 编号生成 bind
     foreach my $ic_num (sort { $a <=> $b } keys %ic_numbers) {
-        my $inst_name = "u_int_distributor_sva_ic${ic_num}";
+        my $inst_name = "u_idc_wrap_ast_ic${ic_num}";
         
         # 从 bitmap 计算参数值
         my %bitmap_params = (
@@ -564,7 +564,7 @@ foreach my $design_name (sort keys %all_mapping) {
         my $level_ic_width = (($ic_bitmap_vals{high_level} ne "") ? count_ones_in_hex($ic_bitmap_vals{high_level}) : scalar(keys %{$mapping->{high_level}}))
                            + (($ic_bitmap_vals{low_level} ne "")  ? count_ones_in_hex($ic_bitmap_vals{low_level})  : scalar(keys %{$mapping->{low_level}}));
         
-        print $bind_fh "bind $design_name int_distributor_sva #(\n";
+        print $bind_fh "bind $design_name idc_wrap_ast #(\n";
         print $bind_fh "    .POS_EDGE_INT_NUM   (" . scalar(keys %{$mapping->{posedge}}) . "),\n";
         print $bind_fh "    .NEG_EDGE_INT_NUM   (" . scalar(keys %{$mapping->{negedge}}) . "),\n";
         print $bind_fh "    .HIGH_LEVEL_INT_NUM (" . scalar(keys %{$mapping->{high_level}}) . "),\n";

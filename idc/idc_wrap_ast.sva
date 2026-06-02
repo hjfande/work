@@ -1,0 +1,78 @@
+module high_checker (
+    input  logic clk,
+    input  logic rst_n,
+    input  logic high_in,
+    input  logic level_to_ic
+);
+    always_comb begin
+        ast_eq: assert (high_in == level_to_ic);
+    end
+
+    property p_rose;
+        @(posedge high_in) disable iff (!rst_n)
+        1;
+    endproperty
+    cov_rose: cover property (p_rose);
+
+    property p_fell;
+        @(negedge high_in) disable iff (!rst_n)
+        1;
+    endproperty
+    cov_fell: cover property (p_fell);
+endmodule
+
+module low_checker (
+    input  logic clk,
+    input  logic rst_n,
+    input  logic low_in,
+    input  logic level_to_ic
+);
+    always_comb begin
+        ast_eq: assert (low_in == ~level_to_ic);
+    end
+
+    property p_rose;
+        @(posedge low_in) disable iff (!rst_n)
+        1;
+    endproperty
+    cov_rose: cover property (p_rose);
+
+    property p_fell;
+        @(negedge low_in) disable iff (!rst_n)
+        1;
+    endproperty
+    cov_fell: cover property (p_fell);
+endmodule
+
+module merge_checker #(
+    parameter int BUS_WIDTH = 32
+)(
+    input  logic                 clk,
+    input  logic                 rst_n,
+    input  logic                 merge_to_ic,
+    input  logic [BUS_WIDTH-1:0] group_in,
+    input  logic [BUS_WIDTH-1:0] group_enable,
+    input  logic [BUS_WIDTH-1:0] group_mask,
+    input  logic [BUS_WIDTH-1:0] group_set,
+    input  logic [BUS_WIDTH-1:0] group_regbank
+);
+
+    logic merge_regbank_bit;
+    assign merge_regbank_bit = |group_regbank;
+    always_comb begin
+        ast_regbank_to_ic_eq: assert (merge_regbank_bit == merge_to_ic);
+    end
+
+    property p_rose(in);
+        @(posedge in) disable iff (!rst_n)
+        1;
+    endproperty
+
+    property p_fell(in);
+        @(negedge in) disable iff (!rst_n)
+        1;
+    endproperty
+
+    cov_regbank_rose: cover property (p_rose(merge_regbank_bit));
+    cov_regbank_fell: cover property (p_fell(merge_regbank_bit));
+endmodule
