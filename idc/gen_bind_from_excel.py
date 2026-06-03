@@ -55,7 +55,10 @@ class IntrInfo:
         self.port_in_name = ''
         self.port_out_info_list = []
         self.merge_group_idx = -1
-        self.regbank_merge_int_hier = ''
+        self.regbank_merge_int_out = ''
+        self.regbank_merge_int_enable_hier = ''
+        self.regbank_merge_int_mask_hier = ''
+        self.regbank_merge_int_in = ''
 
         if raw_data:
             for k, v in raw_data.items():
@@ -79,7 +82,10 @@ class IntrInfo:
                 f"port_in_name={self.port_in_name!r}, "
                 f"port_out_info_list={self.port_out_info_list}, "
                 f"merge_group_idx={self.merge_group_idx}, "
-                f"regbank_merge_int_hier={self.regbank_merge_int_hier!r})")
+                f"regbank_merge_int_out={self.regbank_merge_int_out!r}, "
+                f"regbank_merge_int_enable_hier={self.regbank_merge_int_enable_hier!r}, "
+                f"regbank_merge_int_mask_hier={self.regbank_merge_int_mask_hier!r}, "
+                f"regbank_merge_int_in={self.regbank_merge_int_in!r})")
 
 
 class CFG:
@@ -468,12 +474,24 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
 
         f.write(f"`define REGBANK {cfg.wrap_name}.u_{cfg.ctrl_name}.u_{cfg.sys_name}_idc_regbank\n\n")
 
-        # Assign regbank_merge_int_hier for HIGH/LOW types
+        # Assign regbank_merge_int_out for HIGH/LOW types
         for info in intr.intr_info_list:
             if info.get('INT_TYPE', '') in ('HIGH', 'LOW'):
-                info.regbank_merge_int_hier = (
+                info.regbank_merge_int_out = (
                     f"`REGBANK.{cfg.sys_name.lower()}_ic``ic_num``_merge_int"
                     f"{info.merge_group_idx}_{info.port_in_name}_rdat"
+                )
+                info.regbank_merge_int_enable_hier = (
+                    f"`REGBANK.{cfg.sys_name.lower()}_ic``ic_num``_merge_int"
+                    f"{info.merge_group_idx}_enable_{info.port_in_name}"
+                )
+                info.regbank_merge_int_mask_hier = (
+                    f"`REGBANK.{cfg.sys_name.lower()}_ic``ic_num``_merge_int"
+                    f"{info.merge_group_idx}_mask_{info.port_in_name}"
+                )
+                info.regbank_merge_int_in = (
+                    f"`REGBANK.{cfg.sys_name.lower()}_ic``ic_num``_merge_int"
+                    f"{info.merge_group_idx}_raw_status_{info.port_in_name}_wdat"
                 )
 
         for info in intr.intr_info_list:
@@ -521,10 +539,7 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 continue
 
             port_in = info.port_in_name
-            module_name = ('high_checker' if int_type == 'HIGH' else 'low_checker')
-            level_port = ('high_in'
-                          if int_type == 'HIGH'
-                          else 'low_in')
+            in_conn = port_in if int_type == 'HIGH' else f"~{port_in}"
 
             merge_int_num = (intr.high_cnt + intr.low_cnt + 31) // 32
             for po in info.port_out_info_list:
@@ -533,44 +548,66 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 bit_idx = merge_int_num + ic_bit
                 level_sig = f"{cfg.ic_prefix}_{ic_name}[{bit_idx}]".lower()
 
-                inst_name = (f"u_{module_name}_"
+                inst_name = (f"u_conn_checker_"
                              f"{int_type.lower()}{info.int_type_in_bit_num}_ic{po.ic_num}_{port_in}")
 
-                f.write(f"bind {cfg.wrap_name} {module_name} {inst_name} (\n")
-                f.write(f"    .clk        (apb_clk),\n")
-                f.write(f"    .rst_n      (apb_rstn),\n")
-                f.write(f"    .{level_port} ({port_in}),\n")
-                f.write(f"    .level_to_ic  ({level_sig})\n")
+                f.write(f"bind {cfg.wrap_name} conn_checker #(\n")
+                f.write(f"    .WIDTH(1)\n")
+                f.write(f") {inst_name} (\n")
+                f.write(f"    .clk   (apb_clk),\n")
+                f.write(f"    .rst_n (apb_rstn),\n")
+                f.write(f"    .in    ({in_conn}),\n")
+                f.write(f"    .out   ({level_sig})\n")
                 f.write(f");\n\n")
 
         # --- Bind merge checks ---
         merge_groups = {}
         for info in intr.intr_info_list:
-            if info.get('INT_TYPE', '') not in ('HIGH', 'LOW'):
+            int_type = info.get('INT_TYPE', '')
+            if int_type not in ('HIGH', 'LOW'):
                 continue
             gid = info.merge_group_idx
             if gid < 0:
                 continue
-            regbank = info.regbank_merge_int_hier
+            regbank_int = info.regbank_merge_int_out
+            regbank_enable = info.regbank_merge_int_enable_hier
+            regbank_mask = info.regbank_merge_int_mask_hier
+            regbank_raw = info.regbank_merge_int_in
             merge_groups.setdefault(gid, []).append({
                 'port_in': info.port_in_name,
-                'regbank': regbank
+                'int_type': int_type,
+                'regbank_int': regbank_int,
+                'regbank_enable': regbank_enable,
+                'regbank_mask': regbank_mask,
+                'regbank_raw': regbank_raw
             })
 
         for gid, entries in sorted(merge_groups.items()):
             width = len(entries)
-            port_list = [e['port_in'] for e in entries]
-            regbank_list = [e['regbank'] for e in entries]
+            port_list = [e['port_in'] if e['int_type'] == 'HIGH' else f"~{e['port_in']}" for e in entries]
+            regbank_int_list = [e['regbank_int'] for e in entries]
+            regbank_enable_list = [e['regbank_enable'] for e in entries]
+            regbank_mask_list = [e['regbank_mask'] for e in entries]
+            regbank_raw_list = [e['regbank_raw'] for e in entries]
 
             if width == 1:
                 group_in = port_list[0]
-                group_regbank = regbank_list[0]
+                group_regbank_int = regbank_int_list[0]
+                group_regbank_enable = regbank_enable_list[0]
+                group_regbank_mask = regbank_mask_list[0]
+                group_regbank_raw = regbank_raw_list[0]
             else:
                 group_in = "{" + ", ".join(reversed(port_list)) + "}"
-                group_regbank = "{" + ", ".join(reversed(regbank_list)) + "}"
+                group_regbank_int = "{" + ", ".join(reversed(regbank_int_list)) + "}"
+                group_regbank_enable = "{" + ", ".join(reversed(regbank_enable_list)) + "}"
+                group_regbank_mask = "{" + ", ".join(reversed(regbank_mask_list)) + "}"
+                group_regbank_raw = "{" + ", ".join(reversed(regbank_raw_list)) + "}"
 
             for ic_num, ic_name in enumerate(intr.ic_list):
-                group_regbank_ic = group_regbank.replace('``ic_num``', str(ic_num))
+                group_regbank_int_tmp = group_regbank_int.replace('``ic_num``', str(ic_num))
+                group_regbank_enable_tmp = group_regbank_enable.replace('``ic_num``', str(ic_num))
+                group_regbank_mask_tmp = group_regbank_mask.replace('``ic_num``', str(ic_num))
+                group_regbank_raw_tmp = group_regbank_raw.replace('``ic_num``', str(ic_num))
                 merge_to_ic = f"{cfg.ic_prefix}_{ic_name}[{gid}]".lower()
                 inst_name = f"u_merge_checker_ic{ic_num}_group{gid}_{ic_name.lower()}"
 
@@ -579,12 +616,14 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 f.write(f") {inst_name} ( // {ic_name.lower()}\n")
                 f.write(f"    .clk               (apb_clk),\n")
                 f.write(f"    .rst_n             (apb_rstn),\n")
-                f.write(f"    .group_regbank ({group_regbank_ic}),\n")
-                f.write(f"    .merge_to_ic      ({merge_to_ic}),\n")
-                f.write(f"    .group_in      ({group_in}),\n")
-                f.write(f"    .group_enable  ({width}'b0),\n")
-                f.write(f"    .group_mask    ({width}'b0),\n")
-                f.write(f"    .group_set     ({width}'b0)\n")
+                f.write(f"    .merge_to_ic       ({merge_to_ic}),\n")
+                f.write(f"    .group_regbank_out ({group_regbank_int_tmp}),\n")
+                f.write(f"    .group_regbank_in  ({group_regbank_raw_tmp}),\n")
+                f.write(f"`ifdef REGBANK_CHECK_ENABLE\n")
+                f.write(f"    .group_regbank_enable ({group_regbank_enable_tmp}),\n")
+                f.write(f"    .group_regbank_mask   ({group_regbank_mask_tmp}),\n")
+                f.write(f"`endif\n")
+                f.write(f"    .group_in          ({group_in})\n")
                 f.write(f");\n\n")
 
         f.write("// ============================================================================\n")
