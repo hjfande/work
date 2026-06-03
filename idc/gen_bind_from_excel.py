@@ -626,6 +626,30 @@ def generate_bind_sva(intr, cfg, output_file='bind_idc_wrap.sv'):
                 f.write(f"    .group_in          ({group_in})\n")
                 f.write(f");\n\n")
 
+        # --- APB signal connectivity checks ---
+        apb_signals = [
+            # (in_signal, out_signal, width)
+            ('apb_clk',  'clk',      1),
+            ('apb_rstn', 'rst_n',    1),
+            ('psel',     'psel',     1),
+            ('penable',  'penable',  1),
+            ('pwrite',   'pwrite',   1),
+            ('paddr',    'paddr',    32),
+            ('pwdata',   'pwdata',   32),
+            ('prdata',   'prdata',   32),
+            ('pready',   'pready',   1),
+            ('pslverr',  'pslverr',  1),
+        ]
+        for sig_in, sig_out, width in apb_signals:
+            f.write(f"bind {cfg.wrap_name} conn_checker #(\n")
+            f.write(f"    .WIDTH({width})\n")
+            f.write(f") u_conn_checker_apb_{sig_in} (\n")
+            f.write(f"    .clk   (apb_clk),\n")
+            f.write(f"    .rst_n (apb_rstn),\n")
+            f.write(f"    .in    ({sig_in}),\n")
+            f.write(f"    .out   (`REGBANK.{sig_out})\n")
+            f.write(f");\n\n")
+
         f.write("// ============================================================================\n")
         f.write("// End of auto-generated bind file\n")
         f.write("// ============================================================================\n")
