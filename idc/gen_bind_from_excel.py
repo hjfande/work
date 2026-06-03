@@ -642,6 +642,19 @@ def main():
         # --- Step 3: Generate bind_idc_wrap.sv ---
         generate_bind_sva(intr, cfg)
 
+        # --- Step 4: Generate sim_force.tcl ---
+        tcl_file = "sim_force.tcl"
+        with open(tcl_file, 'w') as f:
+            f.write("# Auto-generated sim_force.tcl by gen_bind_from_excel.py\n")
+            f.write("# Do NOT edit manually\n\n")
+            for info in intr.intr_info_list:
+                int_type = info.get('INT_TYPE', '')
+                if int_type == 'POSEDGE':
+                    f.write(f"sim_force {info.port_in_name} -apply 0\n")
+                elif int_type == 'NEGEDGE':
+                    f.write(f"sim_force {info.port_in_name} -apply 1\n")
+        print(f"[INFO] TCL file saved to: {tcl_file}")
+
         return 0
 
     except Exception as e:
