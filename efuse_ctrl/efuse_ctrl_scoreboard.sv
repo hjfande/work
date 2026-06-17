@@ -165,6 +165,18 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
+  // Utility: Check raw fuse data against expected logical data
+  //   Encodes expected_data with wr_lfsr_translate before comparing, because
+  //   the fuse backdoor returns raw (LFSR-encoded) primary/shadow bits.
+  //==========================================================================
+  extern function void check_fuse_raw_match(
+    input bit [31:0] addr,
+    input bit [31:0] expected_data,
+    input bit [31:0] actual_data,
+    input string     reason
+  );
+
+  //==========================================================================
   // Utility: Update VIF/SVA expected values from eFuse data
   //
   // Call locations:
@@ -367,9 +379,9 @@ task efuse_ctrl_scoreboard::read_word(
   ReadFuse(pri_A, pri_data, mem_type, force_normal_mode);
   ReadFuse(shd_A, shd_data, mem_type, force_normal_mode);
 
-  pri_data  = rd_lfsr_translate(addr, pri_data);
-  shd_data  = rd_lfsr_translate(addr, shd_data);
-  word_data = pri_data | shd_data;
+  // LFSR decode is applied to the combined primary|shadow word.
+  // pri_data/shd_data remain raw encoded fuse bits; word_data is the logical value.
+  word_data = rd_lfsr_translate(addr, pri_data | shd_data);
 
   `uvm_info(get_type_name(), $sformatf(
     "Read word: addr=0x%08x mem_type=%s force_normal_mode=%0b pri=0x%08x shd=0x%08x data=0x%08x",
@@ -515,6 +527,22 @@ function void efuse_ctrl_scoreboard::check_data_match(
       addr, actual_data, reason
     ), UVM_HIGH)
   end
+endfunction
+
+//----------------------------------------------------------------------------
+// check_fuse_raw_match: Compare expected logical data against raw fuse bits
+//   The fuse backdoor returns LFSR-encoded raw bits, so expected_data is
+//   encoded with wr_lfsr_translate before the comparison.
+//----------------------------------------------------------------------------
+function void efuse_ctrl_scoreboard::check_fuse_raw_match(
+  input bit [31:0] addr,
+  input bit [31:0] expected_data,
+  input bit [31:0] actual_data,
+  input string     reason
+);
+  bit [31:0] logic_addr;
+  logic_addr = addr - EFUSE_BASE_ADDR;
+  check_data_match(addr, wr_lfsr_translate(logic_addr, expected_data), actual_data, reason);
 endfunction
 
 function bit [31:0] efuse_ctrl_scoreboard::rd_lfsr_translate(
@@ -765,10 +793,9 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
       read_word(tr.address - EFUSE_BASE_ADDR, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      check_data_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
-      check_data_match(tr.address, expected_data, pri_data_sram, {reason, " DUT_SRAM primary"});
-      check_data_match(tr.address, expected_data, shd_data_sram, {reason, " DUT_SRAM shadow"});
+      check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"});
 
       write_word(tr.address - EFUSE_BASE_ADDR, expected_data, REF_SRAM, FORCE_WRITE);
    
@@ -776,8 +803,8 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       update_vif_sva_expect_val();
     end
     else begin
-      check_data_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
     end
 
     check_pslverr(tr, expect_pslverr);
@@ -857,8 +884,8 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
     read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-    check_data_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-    check_data_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+    check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
+    check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
 
     check_pslverr(tr, expect_pslverr);
     write_word(tr.address - EFUSE_BASE_ADDR, expected_data, REF_FUSE, FORCE_WRITE);
@@ -1664,6 +1691,7 @@ endtask
 //----------------------------------------------------------------------------
 // do_load_verify: Compare DUT_SRAM vs DUT_FUSE word-by-word,
 // then copy ref_fuse_data to ref_sram_data
+// test_mode will never be set during load, so no need to consider test row/col access here
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::do_load_verify(string reason);
   int                        word_idx;
@@ -1680,8 +1708,8 @@ task efuse_ctrl_scoreboard::do_load_verify(string reason);
   for (word_idx = 0; word_idx < fuse_size/32/2; word_idx++) begin
     addr = word_idx * 4;
 
-    // DUT_SRAM: word-addressable backdoor access, no LFSR
-    sram_word = efuse_ctrl_vif.sram_data(addr[8:2]);
+    // DUT_SRAM: read through read_word instead of directly using sram_data
+    read_word(addr, sram_word, pri_tmp, shd_tmp, DUT_SRAM, 1'b1);
 
     // DUT_FUSE: combine primary + shadow, then apply LFSR decode
     read_word(addr, fuse_word, pri_tmp, shd_tmp, DUT_FUSE, 1'b1);
