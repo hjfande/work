@@ -693,7 +693,7 @@ endtask
 
 //----------------------------------------------------------------------------
 // good_trans_checker_and_ref_update: Check good transactions and update reference model
-// PPROT1 (secure/non-secure) support: pprot1=0 means non-secure access.
+// PPROT1 (secure/non-secure) support: pprot1=1 means non-secure access.
 // Read returns 0. For writes in non-reverse eFuse region, check the write is
 // ignored (DUT_FUSE and DUT_SRAM unchanged); for reverse region, no write check.
 //----------------------------------------------------------------------------
@@ -720,23 +720,23 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
   end
 
   // Non-secure access: read returns 0, write is ignored.
-  if (tr.pprot1 === 1'b0) begin
+  if (tr.pprot1 === 1'b1) begin
     `uvm_info(get_type_name(), $sformatf(
-      "[%s] pprot1=0 non-secure access: addr=0x%08x %s data=0x%08x",
+      "[%s] pprot1=1 non-secure access: addr=0x%08x %s data=0x%08x",
       reason, tr.address, tr.xact_type.name(), tr.data
     ), UVM_HIGH)
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
-      check_read_data(tr, 32'h0, "pprot1=0 non-secure read returns 0");
+      check_read_data(tr, 32'h0, "pprot1=1 non-secure read returns 0");
     end else if (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE) begin
       // Check DUT_FUSE unchanged
       read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
       read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=0 non-secure write ignored, DUT_FUSE unchanged");
+      check_data_match(tr.address, mem_data, hw_data, "pprot1=1 non-secure write ignored, DUT_FUSE unchanged");
       // Check DUT_SRAM unchanged
       read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_sram, shd_data_sram, REF_SRAM, 1'b1);
       read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_SRAM, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=0 non-secure write ignored, DUT_SRAM unchanged");
+      check_data_match(tr.address, mem_data, hw_data, "pprot1=1 non-secure write ignored, DUT_SRAM unchanged");
     end
     return;
   end
@@ -815,7 +815,7 @@ endtask
 //----------------------------------------------------------------------------
 // test_mode_good_trans_checker_and_ref_update: Good transaction check in test mode
 // Only checks DUT_FUSE, no SRAM access/check.
-// PPROT1 (secure/non-secure) support: pprot1=0 means non-secure access.
+// PPROT1 (secure/non-secure) support: pprot1=1 means non-secure access.
 // Read returns 0. For writes in non-reverse eFuse region, check the write is
 // ignored (DUT_FUSE unchanged); for reverse region, no write check.
 //----------------------------------------------------------------------------
@@ -839,18 +839,18 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
   end
 
   // Non-secure access: read returns 0, write is ignored.
-  if (tr.pprot1 === 1'b0) begin
+  if (tr.pprot1 === 1'b1) begin
     `uvm_info(get_type_name(), $sformatf(
-      "[%s] pprot1=0 non-secure access: addr=0x%08x %s data=0x%08x",
+      "[%s] pprot1=1 non-secure access: addr=0x%08x %s data=0x%08x",
       reason, tr.address, tr.xact_type.name(), tr.data
     ), UVM_HIGH)
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
-      check_read_data(tr, 32'h0, "pprot1=0 non-secure read returns 0");
+      check_read_data(tr, 32'h0, "pprot1=1 non-secure read returns 0");
     end else if (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE) begin
       read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
       read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=0 non-secure write ignored, DUT_FUSE unchanged");
+      check_data_match(tr.address, mem_data, hw_data, "pprot1=1 non-secure write ignored, DUT_FUSE unchanged");
     end
     return;
   end
