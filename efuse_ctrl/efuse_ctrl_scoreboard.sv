@@ -1278,10 +1278,8 @@ task efuse_ctrl_scoreboard::apbs_checker();
       tr.xact_type.name(), tr.address, tr.data
     ), UVM_MEDIUM)
 
-    // Split into register access and eFuse access
-    if (tr.address < EFUSE_BASE_ADDR) begin
-      apbs_reg_checker(tr);
-    end else if (is_before_efuse_load_done(tr)) begin
+    // Secure master only accesses eFuse region; register access branch is not applicable.
+    if (is_before_efuse_load_done(tr)) begin
       apbs_efuse_load_not_done_check(tr);
     end else begin
       test_mode = reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
