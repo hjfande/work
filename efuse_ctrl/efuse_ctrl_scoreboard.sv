@@ -289,6 +289,16 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Event triggered by apbp_reg_checker when efuse_done_status bit becomes 1
   event software_load_done_event;
 
+  // Time when efuse_load_done rising edge was observed.
+  // Used to determine whether an APB transaction started before or after load done.
+  time efuse_load_done_finish_time;
+  bit  efuse_load_done_recorded;
+
+  //==========================================================================
+  // Utility: Check if transaction started before efuse_load_done rising edge
+  //==========================================================================
+  extern function bit is_before_efuse_load_done(svt_apb_transaction tr);
+
   extern virtual task run_phase(uvm_phase phase);
 
 endclass
@@ -322,6 +332,9 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
   foreach (ref_test_column[i]) ref_test_column[i] = '0;
 
   efuse_dcu_en_written = 1'b0;
+
+  efuse_load_done_finish_time = 0;
+  efuse_load_done_recorded    = 1'b0;
 endfunction
 
 task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
@@ -543,6 +556,18 @@ function void efuse_ctrl_scoreboard::check_fuse_raw_match(
   bit [31:0] logic_addr;
   logic_addr = addr - EFUSE_BASE_ADDR;
   check_data_match(addr, wr_lfsr_translate(logic_addr, expected_data), actual_data, reason);
+endfunction
+
+//----------------------------------------------------------------------------
+// is_before_efuse_load_done: Determine if a transaction started before the
+// efuse_load_done rising edge. Before the rising edge is recorded, all
+// transactions are considered to be before load done.
+//----------------------------------------------------------------------------
+function bit efuse_ctrl_scoreboard::is_before_efuse_load_done(svt_apb_transaction tr);
+  if (!efuse_load_done_recorded) begin
+    return 1'b1;
+  end
+  return (tr.begin_time < efuse_load_done_finish_time);
 endfunction
 
 function bit [31:0] efuse_ctrl_scoreboard::rd_lfsr_translate(
@@ -1256,7 +1281,7 @@ task efuse_ctrl_scoreboard::apbs_checker();
     // Split into register access and eFuse access
     if (tr.address < EFUSE_BASE_ADDR) begin
       apbs_reg_checker(tr);
-    end else if (efuse_ctrl_vif.efuse_load_done !== 1'b1) begin
+    end else if (is_before_efuse_load_done(tr)) begin
       apbs_efuse_load_not_done_check(tr);
     end else begin
       test_mode = reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
@@ -1330,13 +1355,13 @@ endtask
 
 //----------------------------------------------------------------------------
 // apbs_efuse_access_checker: Split into accessible/access_deny/reverse eFuse region
-// For non-reverse region, if efuse_load_done is low, write is ignored and read=0.
+// For non-reverse region, if the transaction started before the efuse_load_done rising edge, write is ignored and read=0.
 // PPROT1 (secure/non-secure) handling is performed inside good_trans_checker_and_ref_update.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbs_efuse_access_checker(svt_apb_transaction tr);
   if (tr.address >= EFUSE_BASE_ADDR + EFUSE_SIZE) begin
     apbs_efuse_reverse_check(tr);
-  end else if (efuse_ctrl_vif.efuse_load_done !== 1'b1) begin
+  end else if (is_before_efuse_load_done(tr)) begin
     apbs_efuse_load_not_done_check(tr);
   end else if (is_secure_region(tr.address)) begin
     apbs_efuse_accessible_check(tr);
@@ -1385,7 +1410,7 @@ task efuse_ctrl_scoreboard::apbs_efuse_load_not_done_check(svt_apb_transaction t
   bit [31:0] shd_data;
 
   `uvm_info(get_type_name(), $sformatf(
-    "[APBS] efuse_load_done low! addr=0x%08x write ignored, read=0, only check fuse",
+    "[APBS] before efuse_load_done rising edge! addr=0x%08x write ignored, read=0, only check fuse",
     tr.address
   ), UVM_HIGH)
 
@@ -1431,7 +1456,7 @@ task efuse_ctrl_scoreboard::apbp_checker();
     // Split into register access and eFuse access
     if (tr.address < EFUSE_BASE_ADDR) begin
       apbp_reg_checker(tr);
-    end else if (efuse_ctrl_vif.efuse_load_done !== 1'b1) begin
+    end else if (is_before_efuse_load_done(tr)) begin
       apbp_efuse_load_not_done_check(tr);
     end else begin
       test_mode = reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
@@ -1487,7 +1512,7 @@ endtask
 
 //----------------------------------------------------------------------------
 // apbp_efuse_access_checker: Split into accessible/access_deny/reverse eFuse region
-// For non-reverse region, if efuse_load_done is low, write is ignored and read=0.
+// For non-reverse region, if the transaction started before the efuse_load_done rising edge, write is ignored and read=0.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbp_efuse_access_checker(svt_apb_transaction tr);
   bit in_secure;
@@ -1499,7 +1524,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_access_checker(svt_apb_transaction tr);
 
   if (tr.address >= EFUSE_BASE_ADDR + EFUSE_SIZE) begin
     apbp_efuse_reverse_check(tr);
-  end else if (efuse_ctrl_vif.efuse_load_done !== 1'b1) begin
+  end else if (is_before_efuse_load_done(tr)) begin
     apbp_efuse_load_not_done_check(tr);
   end else if (in_secure) begin
     get_top_acc_sec_region_bit(top_acc_sec_region);
@@ -1569,7 +1594,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_load_not_done_check(svt_apb_transaction t
   bit [31:0] shd_data;
 
   `uvm_info(get_type_name(), $sformatf(
-    "[APBP] efuse_load_done low! addr=0x%08x write ignored, read=0, only check fuse",
+    "[APBP] before efuse_load_done rising edge! addr=0x%08x write ignored, read=0, only check fuse",
     tr.address
   ), UVM_HIGH)
 
@@ -1672,7 +1697,9 @@ endtask
 task efuse_ctrl_scoreboard::auto_load_check();
   `uvm_info(get_type_name(), "[LOAD] waiting for auto load done (efuse_load_done)", UVM_MEDIUM)
   @(posedge efuse_ctrl_vif.efuse_load_done);
-  `uvm_info(get_type_name(), "[LOAD] auto load done detected", UVM_MEDIUM)
+  efuse_load_done_finish_time = $time;
+  efuse_load_done_recorded    = 1'b1;
+  `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_finish_time), UVM_MEDIUM)
   do_load_verify("auto load");
   update_vif_sva_expect_val();
 endtask
