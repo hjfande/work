@@ -207,17 +207,23 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
 
   //==========================================================================
   // Utility: Check good transactions and update reference model
+  //   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR)
+  //   to use for all read_word/write_word calls.
   //==========================================================================
   extern task good_trans_checker_and_ref_update(
     input svt_apb_transaction tr,
+    input bit [31:0]          logic_addr,
     input string              reason
   );
 
   //==========================================================================
   // Utility: Check good transactions in test mode (no SRAM check)
+  //   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR)
+  //   to use for all read_word/write_word calls.
   //==========================================================================
   extern task test_mode_good_trans_checker_and_ref_update(
     input svt_apb_transaction tr,
+    input bit [31:0]          logic_addr,
     input string              reason
   );
 
@@ -289,10 +295,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Event triggered by apbp_reg_checker when efuse_done_status bit becomes 1
   event software_load_done_event;
 
-  // Time when efuse_load_done rising edge was observed.
+  // Real time when efuse_load_done rising edge was observed.
   // Used to determine whether an APB transaction started before or after load done.
-  time efuse_load_done_finish_time;
-  bit  efuse_load_done_recorded;
+  realtime efuse_load_done_time;
+  bit      efuse_load_done_recorded;
 
   //==========================================================================
   // Utility: Check if transaction started before efuse_load_done rising edge
@@ -333,8 +339,8 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
 
   efuse_dcu_en_written = 1'b0;
 
-  efuse_load_done_finish_time = 0;
-  efuse_load_done_recorded    = 1'b0;
+  efuse_load_done_time     = 0;
+  efuse_load_done_recorded = 1'b0;
 endfunction
 
 task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
@@ -567,7 +573,7 @@ function bit efuse_ctrl_scoreboard::is_before_efuse_load_done(svt_apb_transactio
   if (!efuse_load_done_recorded) begin
     return 1'b1;
   end
-  return (tr.begin_time < efuse_load_done_finish_time);
+  return (tr.svt_begin_realtime < efuse_load_done_time);
 endfunction
 
 function bit [31:0] efuse_ctrl_scoreboard::rd_lfsr_translate(
@@ -718,12 +724,14 @@ endtask
 
 //----------------------------------------------------------------------------
 // good_trans_checker_and_ref_update: Check good transactions and update reference model
+//   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR).
 // PPROT1 (secure/non-secure) support: svt_apb_transaction::NON_SECURE means non-secure access.
 // Read returns 0. For writes in non-reverse eFuse region, check the write is
 // ignored (DUT_FUSE and DUT_SRAM unchanged); for reverse region, no write check.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
   input svt_apb_transaction tr,
+  input bit [31:0]          logic_addr,
   input string              reason
 );
   bit [31:0] pri_data_fuse;
@@ -753,14 +761,14 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "pprot1=NON_SECURE non-secure read returns 0");
-    end else if (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE) begin
+    end else if (logic_addr < EFUSE_SIZE) begin
       // Check DUT_FUSE unchanged
-      read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
-      read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
+      read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
+      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
       check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged");
       // Check DUT_SRAM unchanged
-      read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_sram, shd_data_sram, REF_SRAM, 1'b1);
-      read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_SRAM, 1'b1);
+      read_word(logic_addr, mem_data, pri_data_sram, shd_data_sram, REF_SRAM, 1'b1);
+      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_SRAM, 1'b1);
       check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_SRAM unchanged");
     end
     return;
@@ -774,14 +782,14 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     read_from_efuse = reg_model.efuse_ctrl_acc_cfg.read_from_efuse.get();
     backdoor_mem_type = (read_from_efuse === 1'b1) ? DUT_FUSE : DUT_SRAM;
 
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
+    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
     check_data_match(tr.address, hw_data, tr.data, {reason, " read backdoor"});
 
     // Check ref vs dut consistency
     if (backdoor_mem_type == DUT_FUSE) begin
-      read_word(tr.address - EFUSE_BASE_ADDR, ref_data, ref_pri, ref_shd, REF_FUSE);
+      read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
     end else begin
-      read_word(tr.address - EFUSE_BASE_ADDR, ref_data, ref_pri, ref_shd, REF_SRAM);
+      read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
     check_data_match(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"});
 
@@ -789,7 +797,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     check_pslverr(tr, 1'b0);
 
     if (cfg.READ_UPDATE_SRAM && read_from_efuse) begin
-      write_word(tr.address - EFUSE_BASE_ADDR, hw_data, DUT_SRAM, FORCE_WRITE);
+      write_word(logic_addr, hw_data, DUT_SRAM, FORCE_WRITE);
     end
   end
   else begin // WRITE
@@ -798,7 +806,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     bit [3:0] pstrb;
     int byte_idx;
 
-    read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
+    read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
     // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data;
     // non-strobed bytes keep the existing fuse value.
@@ -811,34 +819,35 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     end
     expect_pslverr = 1'b0;
 
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
     get_shadow_sram_acc_bit(shadow_sram_acc);
     wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
-      read_word(tr.address - EFUSE_BASE_ADDR, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
+      read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
       check_data_match(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"});
 
-      write_word(tr.address - EFUSE_BASE_ADDR, expected_data, REF_SRAM, FORCE_WRITE);
+      write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
    
       // Re-calculate expected DUT outputs whenever a good write updates the SRAM reference
       update_vif_sva_expect_val();
     end
     else begin
-      check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
     end
 
     check_pslverr(tr, expect_pslverr);
-    write_word(tr.address - EFUSE_BASE_ADDR, expected_data, REF_FUSE, FORCE_WRITE);
+    write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
 //----------------------------------------------------------------------------
 // test_mode_good_trans_checker_and_ref_update: Good transaction check in test mode
+//   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR).
 // Only checks DUT_FUSE, no SRAM access/check.
 // PPROT1 (secure/non-secure) support: svt_apb_transaction::NON_SECURE means non-secure access.
 // Read returns 0. For writes in non-reverse eFuse region, check the write is
@@ -846,6 +855,7 @@ endtask
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
   input svt_apb_transaction tr,
+  input bit [31:0]          logic_addr,
   input string              reason
 );
   bit [31:0] pri_data_fuse;
@@ -872,19 +882,19 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "pprot1=NON_SECURE non-secure read returns 0");
-    end else if (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE) begin
-      read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
-      read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
+    end else if (logic_addr < EFUSE_SIZE) begin
+      read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
+      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
       check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged");
     end
     return;
   end
 
   if (tr.xact_type == svt_apb_transaction::READ) begin
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
     check_data_match(tr.address, hw_data, tr.data, {reason, " read backdoor"});
 
-    read_word(tr.address - EFUSE_BASE_ADDR, ref_data, ref_pri, ref_shd, REF_FUSE);
+    read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
     check_data_match(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"});
 
     check_pslverr(tr, 1'b0);
@@ -894,7 +904,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     bit [3:0] pstrb;
     int byte_idx;
 
-    read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
+    read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
     // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data;
     // non-strobed bytes keep the existing fuse value.
@@ -907,13 +917,13 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     end
     expect_pslverr = 1'b0;
 
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-    check_fuse_raw_match(tr.address, expected_data, pri_data_fuse, {reason, " DUT_FUSE primary"});
-    check_fuse_raw_match(tr.address, expected_data, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+    check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
+    check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
 
     check_pslverr(tr, expect_pslverr);
-    write_word(tr.address - EFUSE_BASE_ADDR, expected_data, REF_FUSE, FORCE_WRITE);
+    write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
@@ -1342,12 +1352,12 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "test mode illegal sram read");
     end else begin
-      read_word(tr.address - EFUSE_BASE_ADDR, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
-      read_word(tr.address - EFUSE_BASE_ADDR, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
+      read_word(tr.address, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
+      read_word(tr.address, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
       check_data_match(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged");
     end
   end else begin
-    test_mode_good_trans_checker_and_ref_update(tr, "secure master test mode efuse access");
+    test_mode_good_trans_checker_and_ref_update(tr, tr.address, "secure master test mode efuse access");
   end
 endtask
 
@@ -1357,11 +1367,11 @@ endtask
 // PPROT1 (secure/non-secure) handling is performed inside good_trans_checker_and_ref_update.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbs_efuse_access_checker(svt_apb_transaction tr);
-  if (tr.address >= EFUSE_BASE_ADDR + EFUSE_SIZE) begin
+  if (tr.address >= EFUSE_SIZE) begin
     apbs_efuse_reverse_check(tr);
   end else if (is_before_efuse_load_done(tr)) begin
     apbs_efuse_load_not_done_check(tr);
-  end else if (is_secure_region(tr.address)) begin
+  end else if (tr.address < SECURE_REGION_END) begin
     apbs_efuse_accessible_check(tr);
   end else begin
     apbs_efuse_access_deny_check(tr);
@@ -1372,7 +1382,7 @@ endtask
 // apbs_efuse_accessible_check: Secure master within secure region
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbs_efuse_accessible_check(svt_apb_transaction tr);
-  good_trans_checker_and_ref_update(tr, "secure master efuse access");
+  good_trans_checker_and_ref_update(tr, tr.address, "secure master efuse access");
 endtask
 
 //----------------------------------------------------------------------------
@@ -1392,8 +1402,8 @@ task efuse_ctrl_scoreboard::apbs_efuse_access_deny_check(svt_apb_transaction tr)
   if (tr.xact_type == svt_apb_transaction::READ) begin
     check_read_data(tr, 32'h0, "access denied");
   end else begin
-    read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data, shd_data, REF_FUSE);
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data, shd_data, DUT_FUSE);
+    read_word(tr.address, mem_data, pri_data, shd_data, REF_FUSE);
+    read_word(tr.address, hw_data, pri_data, shd_data, DUT_FUSE);
     check_data_match(tr.address, mem_data, hw_data, "access denied, DUT_FUSE unchanged");
   end
 endtask
@@ -1416,8 +1426,8 @@ task efuse_ctrl_scoreboard::apbs_efuse_load_not_done_check(svt_apb_transaction t
   if (tr.xact_type == svt_apb_transaction::READ) begin
     check_read_data(tr, 32'h0, "efuse load not done");
   end else begin
-    read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
-    read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+    read_word(tr.address, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
+    read_word(tr.address, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
     check_data_match(tr.address, mem_data, hw_data, "efuse load not done, DUT_FUSE unchanged");
   end
 endtask
@@ -1504,7 +1514,7 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
       check_data_match(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged");
     end
   end else begin
-    test_mode_good_trans_checker_and_ref_update(tr, "public master test mode efuse access");
+    test_mode_good_trans_checker_and_ref_update(tr, tr.address - EFUSE_BASE_ADDR, "public master test mode efuse access");
   end
 endtask
 
@@ -1552,7 +1562,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_accessible_check(svt_apb_transaction tr);
     "[APBP] Access granted: addr=0x%08x", tr.address
   ), UVM_HIGH)
 
-  good_trans_checker_and_ref_update(tr, "public master efuse access");
+  good_trans_checker_and_ref_update(tr, tr.address - EFUSE_BASE_ADDR, "public master efuse access");
 endtask
 
 //----------------------------------------------------------------------------
@@ -1695,9 +1705,9 @@ endtask
 task efuse_ctrl_scoreboard::auto_load_check();
   `uvm_info(get_type_name(), "[LOAD] waiting for auto load done (efuse_load_done)", UVM_MEDIUM)
   @(posedge efuse_ctrl_vif.efuse_load_done);
-  efuse_load_done_finish_time = $time;
-  efuse_load_done_recorded    = 1'b1;
-  `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_finish_time), UVM_MEDIUM)
+  efuse_load_done_time     = $realtime;
+  efuse_load_done_recorded = 1'b1;
+  `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
   do_load_verify("auto load");
   update_vif_sva_expect_val();
 endtask
