@@ -300,6 +300,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   realtime efuse_load_done_time;
   bit      efuse_load_done_recorded;
 
+  // Track whether apply_cfg_to_dut_fuse is running, so write_word can suppress
+  // the force_normal_mode warning during backdoor cfg initialization.
+  bit backdoor_cfg_efuse;
+
   //==========================================================================
   // Utility: Check if transaction started before efuse_load_done rising edge
   //==========================================================================
@@ -341,6 +345,7 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
 
   efuse_load_done_time     = 0;
   efuse_load_done_recorded = 1'b0;
+  backdoor_cfg_efuse       = 1'b0;
 endfunction
 
 task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
@@ -437,7 +442,7 @@ task efuse_ctrl_scoreboard::write_word(
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
 
-  if (force_normal_mode) begin
+  if (force_normal_mode && !backdoor_cfg_efuse) begin
     `uvm_warning(get_type_name(), $sformatf(
       "Write word with force_normal_mode=1: addr=0x%08x mem_type=%s write_type=%s data=0x%08x",
       addr, mem_type.name(), write_type.name(), word_data
@@ -470,6 +475,8 @@ task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
   bit [31:0] pri_data;
   bit [31:0] shd_data;
 
+  backdoor_cfg_efuse = 1'b1;
+
   // LCS_STATE: low 4 bits at APB offset 0x48
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[3:0] = cfg.lcs_state;
@@ -491,6 +498,8 @@ task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
   word_data[10] = cfg.shadow_sram_acc_bit;
   word_data[9]  = cfg.top_acc_sec_region_bit;
   write_word(32'hA8, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+
+  backdoor_cfg_efuse = 1'b0;
 endtask
 
 function void efuse_ctrl_scoreboard::check_pslverr(svt_apb_transaction tr, bit expected_err);
