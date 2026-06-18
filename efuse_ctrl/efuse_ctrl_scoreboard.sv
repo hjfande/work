@@ -825,6 +825,8 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
   bit        shadow_sram_acc;
   mem_type_enum backdoor_mem_type;
 
+  logic_addr[1:0] = 2'b00; // word-align the address for backdoor access
+
   if (reg_model == null) begin
     `uvm_fatal(get_type_name(), "good_trans_checker_and_ref_update: reg_model is null")
   end
@@ -951,6 +953,8 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
   bit [31:0] ref_data;
   bit [31:0] ref_pri;
   bit [31:0] ref_shd;
+
+  logic_addr[1:0] = 2'b00; // word-align the address for backdoor access
 
   if (reg_model == null) begin
     `uvm_fatal(get_type_name(), "test_mode_good_trans_checker_and_ref_update: reg_model is null")
@@ -1370,7 +1374,6 @@ task efuse_ctrl_scoreboard::apbs_checker();
 
   forever begin
     apbs_port.get(tr);
-    tr.address[1:0] = 2'b00; // align to word boundary
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBS] %s addr=0x%08x data=0x%08x",
@@ -1547,7 +1550,6 @@ task efuse_ctrl_scoreboard::apbp_checker();
 
   forever begin
     apbp_port.get(tr);
-    tr.address[1:0] = 2'b00; // align to word boundary
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBP] %s addr=0x%08x data=0x%08x",
