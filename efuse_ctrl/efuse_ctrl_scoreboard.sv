@@ -532,16 +532,25 @@ task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[3:0] = cfg.lcs_state;
   write_word(LCS_STATE_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(LCS_STATE_START, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(LCS_STATE_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(LCS_STATE_START, word_data, REF_SRAM, FORCE_WRITE);
 
   // Write access disable: low 8 bits at APB offset 0x7C
   read_word(WR_RD_ACC_DIS_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_wr_disable;
   write_word(WR_RD_ACC_DIS_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_RD_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(WR_RD_ACC_DIS_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_RD_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
 
   // Read access disable: low 8 bits at APB offset 0x80
   read_word(WR_RD_ACC_DIS_START + 4, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_rd_disable;
   write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
 
   // shadow_sram_acc_bit at APB offset 0xA8 bit[10]
   // top_acc_sec_region_bit at APB offset 0xA8 bit[9]
@@ -549,6 +558,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
   word_data[10] = cfg.shadow_sram_acc_bit;
   word_data[9]  = cfg.top_acc_sec_region_bit;
   write_word(32'hA8, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(32'hA8, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(32'hA8, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(32'hA8, word_data, REF_SRAM, FORCE_WRITE);
 
   backdoor_cfg_efuse = 1'b0;
 endtask
