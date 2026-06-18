@@ -626,10 +626,15 @@ endfunction
 
 //----------------------------------------------------------------------------
 // is_before_efuse_load_done: Determine if a transaction started before the
-// efuse_load_done rising edge. Before the rising edge is recorded, all
-// transactions are considered to be before load done.
+// efuse_load_done rising edge.
+//   If cfg.check_trans_before_load_done_by_single is 1, use the current
+//   efuse_load_done signal level (legacy behavior).
+//   Otherwise, compare the transaction begin time with efuse_load_done_time.
 //----------------------------------------------------------------------------
 function bit efuse_ctrl_scoreboard::is_before_efuse_load_done(svt_apb_transaction tr);
+  if (cfg != null && cfg.check_trans_before_load_done_by_single) begin
+    return (efuse_ctrl_vif.efuse_load_done !== 1'b1);
+  end
   if (!efuse_load_done_recorded) begin
     return 1'b1;
   end

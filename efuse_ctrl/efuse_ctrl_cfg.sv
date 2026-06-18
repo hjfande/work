@@ -14,6 +14,7 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(shadow_sram_acc_bit,    UVM_ALL_ON)
     `uvm_field_int(top_acc_sec_region_bit, UVM_ALL_ON)
     `uvm_field_int(pslverr_check_enable,   UVM_ALL_ON)
+    `uvm_field_int(check_trans_before_load_done_by_single, UVM_ALL_ON)
   `uvm_object_utils_end
 
   // Update DUT SRAM from fuse read data (default disabled)
@@ -34,6 +35,10 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // 1 = enable PSLVERR checking in scoreboard, 0 = skip PSLVERR checks
   bit pslverr_check_enable = 1'b0;
+
+  // 1 = use current efuse_load_done signal to judge before/after load done (default)
+  // 0 = use transaction begin_time vs efuse_load_done_time
+  bit check_trans_before_load_done_by_single = 1'b1;
 
   // LCS_STATE constraint: only CM/DM/DD/DR are valid
   constraint lcs_state_c {
