@@ -116,7 +116,7 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   //==========================================================================
   // Apply cfg values to DUT_FUSE in reset_phase
   //==========================================================================
-  extern task apply_cfg_to_dut_fuse();
+  extern task apply_cfg_to_fuse_sram();
 
   //==========================================================================
   // Backdoor access wrappers: FUSE vs SRAM
@@ -313,7 +313,7 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   realtime efuse_load_done_time;
   bit      efuse_load_done_recorded;
 
-  // Track whether apply_cfg_to_dut_fuse is running, so write_word can suppress
+  // Track whether apply_cfg_to_fuse_sram is running, so write_word can suppress
   // the force_normal_mode warning during backdoor cfg initialization.
   bit backdoor_cfg_efuse;
 
@@ -372,7 +372,7 @@ task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
   // Wait 1 time unit, then update DUT_FUSE according to cfg
   #1;
   `uvm_info(get_type_name(), "Applying cfg to DUT_FUSE", UVM_MEDIUM)
-  apply_cfg_to_dut_fuse();
+  apply_cfg_to_fuse_sram();
 
   // Copy DUT_FUSE to reference model
   `uvm_info(get_type_name(), "Copying DUT_FUSE to ref_fuse_data", UVM_MEDIUM)
@@ -519,9 +519,9 @@ task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
 endtask
 
 //----------------------------------------------------------------------------
-// apply_cfg_to_dut_fuse: Update DUT_FUSE with cfg-controlled fields
+// apply_cfg_to_fuse_sram: Update DUT_FUSE/DUT_SRAM/REF_FUSE/REF_SRAM with cfg-controlled fields
 //----------------------------------------------------------------------------
-task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
+task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   bit [31:0] word_data;
   bit [31:0] pri_data;
   bit [31:0] shd_data;
