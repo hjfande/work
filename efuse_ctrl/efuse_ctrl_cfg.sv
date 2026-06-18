@@ -38,7 +38,7 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // 1 = use current efuse_load_done signal to judge before/after load done (default)
   // 0 = use transaction begin_time vs efuse_load_done_time
-  bit check_trans_before_load_done_by_single = 1'b1;
+  bit check_trans_before_load_done_by_single = 1'b0;
 
   // LCS_STATE constraint: only CM/DM/DD/DR are valid
   constraint lcs_state_c {

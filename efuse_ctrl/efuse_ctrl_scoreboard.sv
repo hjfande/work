@@ -1416,6 +1416,9 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
   get_shadow_sram_acc_bit(shadow_sram_acc);
   wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
+  // In test mode, SRAM access is illegal when enabled:
+  //   - read_from_efuse == 0 means SRAM read is enabled -> illegal
+  //   - shadow_sram_acc == 0 means SRAM write is enabled and wr_en == 1 -> illegal
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
 
@@ -1574,6 +1577,9 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
   get_shadow_sram_acc_bit(shadow_sram_acc);
   wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
+  // In test mode, SRAM access is illegal when enabled:
+  //   - read_from_efuse == 0 means SRAM read is enabled -> illegal
+  //   - shadow_sram_acc == 0 means SRAM write is enabled and wr_en == 1 -> illegal
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
 
@@ -1614,7 +1620,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_access_checker(svt_apb_transaction tr);
     apbp_efuse_load_not_done_check(tr);
   end else if (in_secure) begin
     get_top_acc_sec_region_bit(top_acc_sec_region);
-    if (top_acc_sec_region == 1'b1) begin
+    if (top_acc_sec_region == 1'b0) begin
       apbp_efuse_accessible_check(tr);
     end else begin
       apbp_efuse_access_deny_check(tr);
