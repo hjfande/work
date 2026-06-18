@@ -101,6 +101,19 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
+  // Utility: Write independent raw 32-bit words to FUSE primary and shadow planes
+  //   pri_word_data / shd_word_data are the raw (LFSR-encoded) words to write.
+  //==========================================================================
+  extern task write_fuse_word_by_pri_sdh(
+    input bit [31:0]      addr,
+    input bit [31:0]      pri_word_data,
+    input bit [31:0]      shd_word_data,
+    input mem_type_enum   mem_type,
+    input write_type_enum write_type = FORCE_WRITE,
+    input bit             force_normal_mode = 1'b0
+  );
+
+  //==========================================================================
   // Apply cfg values to DUT_FUSE in reset_phase
   //==========================================================================
   extern task apply_cfg_to_dut_fuse();
@@ -468,6 +481,44 @@ task efuse_ctrl_scoreboard::write_word(
 endtask
 
 //----------------------------------------------------------------------------
+// write_fuse_word_by_pri_sdh: Write independent raw words to primary and shadow planes
+//   pri_word_data / shd_word_data are raw (already LFSR-encoded) 32-bit words.
+//----------------------------------------------------------------------------
+task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
+  input bit [31:0]      addr,
+  input bit [31:0]      pri_word_data,
+  input bit [31:0]      shd_word_data,
+  input mem_type_enum   mem_type,
+  input write_type_enum write_type,
+  input bit             force_normal_mode
+);
+  logic [fuse_addr_size - 1 : 0] pri_A;
+  logic [fuse_addr_size - 1 : 0] shd_A;
+  logic [fuse_addr_size - 1 : 0] bit_A;
+  logic                          bit_data;
+
+  pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
+  shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
+
+  for (int i = 0; i < out_size; i++) begin
+    bit_data = pri_word_data[i];
+
+    bit_A = {i[out_addr_size-1:0], pri_A[read_addr_size-1:0]};
+    WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+
+    bit_data = shd_word_data[i];
+
+    bit_A = {i[out_addr_size-1:0], shd_A[read_addr_size-1:0]};
+    WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+  end
+
+  `uvm_info(get_type_name(), $sformatf(
+    "Write fuse word planes: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b pri=0x%08x shd=0x%08x",
+    addr, mem_type.name(), write_type.name(), force_normal_mode, pri_word_data, shd_word_data
+  ), UVM_HIGH)
+endtask
+
+//----------------------------------------------------------------------------
 // apply_cfg_to_dut_fuse: Update DUT_FUSE with cfg-controlled fields
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apply_cfg_to_dut_fuse();
@@ -814,6 +865,8 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     bit wr_en;
     bit [3:0] pstrb;
     int byte_idx;
+    bit [31:0] new_one;
+    bit [31:0] new_one_raw;
 
     read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
@@ -826,6 +879,8 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
         expected_data[byte_idx*8 +: 8] = mem_data[byte_idx*8 +: 8] | tr.data[byte_idx*8 +: 8];
       end
     end
+    new_one     = expected_data & ~mem_data;
+    new_one_raw = wr_lfsr_translate(logic_addr, new_one);
     expect_pslverr = 1'b0;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
@@ -835,8 +890,9 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
       check_data_match(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"});
 
       write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
@@ -845,12 +901,13 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       update_vif_sva_expect_val();
     end
     else begin
-      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
+      check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+      check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
     end
 
     check_pslverr(tr, expect_pslverr);
-    write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
@@ -912,6 +969,8 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     bit expect_pslverr;
     bit [3:0] pstrb;
     int byte_idx;
+    bit [31:0] new_one;
+    bit [31:0] new_one_raw;
 
     read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
@@ -924,15 +983,18 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
         expected_data[byte_idx*8 +: 8] = mem_data[byte_idx*8 +: 8] | tr.data[byte_idx*8 +: 8];
       end
     end
+    new_one     = expected_data & ~mem_data;
+    new_one_raw = wr_lfsr_translate(logic_addr, new_one);
     expect_pslverr = 1'b0;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-    check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), pri_data_fuse, {reason, " DUT_FUSE primary"});
-    check_data_match(tr.address, wr_lfsr_translate(logic_addr, expected_data), shd_data_fuse, {reason, " DUT_FUSE shadow"});
+    check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
+    check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
+    check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
 
     check_pslverr(tr, expect_pslverr);
-    write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
@@ -1291,6 +1353,7 @@ task efuse_ctrl_scoreboard::apbs_checker();
 
   forever begin
     apbs_port.get(tr);
+    tr.address[31:16] = 16'h0;
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBS] %s addr=0x%08x data=0x%08x",
@@ -1464,6 +1527,7 @@ task efuse_ctrl_scoreboard::apbp_checker();
 
   forever begin
     apbp_port.get(tr);
+    tr.address[31:16] = 16'h0;
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBP] %s addr=0x%08x data=0x%08x",
