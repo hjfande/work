@@ -1358,7 +1358,6 @@ task efuse_ctrl_scoreboard::apbs_checker();
 
   forever begin
     apbs_port.get(tr);
-    tr.address[31:16] = 16'h0;
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBS] %s addr=0x%08x data=0x%08x",
@@ -1535,7 +1534,6 @@ task efuse_ctrl_scoreboard::apbp_checker();
 
   forever begin
     apbp_port.get(tr);
-    tr.address[31:16] = 16'h0;
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBP] %s addr=0x%08x data=0x%08x",
