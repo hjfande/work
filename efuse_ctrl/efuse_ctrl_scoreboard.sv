@@ -3,13 +3,11 @@
 
 // Macro: check_data_match
 // Compares expected_data vs actual_data at the given addr.
-// Uses `__FILE__ and `__LINE__ so that error messages point to the
-// call site rather than the macro definition.
 `define CHECK_DATA_MATCH(addr, expected_data, actual_data, reason) \
   if ((actual_data) !== (expected_data)) begin \
     `uvm_error("efuse_ctrl_scoreboard", $sformatf( \
-      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s) [%s:%0d]", \
-      (addr), (expected_data), (actual_data), (reason), `__FILE__, `__LINE__ \
+      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s)", \
+      (addr), (expected_data), (actual_data), (reason) \
     )) \
   end else begin \
     `uvm_info("efuse_ctrl_scoreboard", $sformatf( \
