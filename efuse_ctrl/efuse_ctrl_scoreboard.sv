@@ -854,7 +854,10 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     backdoor_mem_type = (read_from_efuse === 1'b1) ? DUT_FUSE : DUT_SRAM;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
-    `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, {reason, " read backdoor"})
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, $sformatf(
+      "%s read backdoor read_from_efuse=%0b backdoor_mem_type=%s",
+      reason, read_from_efuse, backdoor_mem_type.name()
+    ))
 
     // Check ref vs dut consistency
     if (backdoor_mem_type == DUT_FUSE) begin
@@ -862,7 +865,10 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     end else begin
       read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
-    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"})
+    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, $sformatf(
+      "%s ref-dut consistency read_from_efuse=%0b backdoor_mem_type=%s",
+      reason, read_from_efuse, backdoor_mem_type.name()
+    ))
 
     // Normal read expects pslverr = 0
     check_pslverr(tr, 1'b0);
