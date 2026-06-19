@@ -1,6 +1,23 @@
 `ifndef EFUSE_CTRL_SCOREBOARD_SV
 `define EFUSE_CTRL_SCOREBOARD_SV
 
+// Macro: check_data_match
+// Compares expected_data vs actual_data at the given addr.
+// Uses `__FILE__ and `__LINE__ so that error messages point to the
+// call site rather than the macro definition.
+`define CHECK_DATA_MATCH(addr, expected_data, actual_data, reason) \
+  if ((actual_data) !== (expected_data)) begin \
+    `uvm_error("efuse_ctrl_scoreboard", $sformatf( \
+      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s) [%s:%0d]", \
+      (addr), (expected_data), (actual_data), (reason), `__FILE__, `__LINE__ \
+    )) \
+  end else begin \
+    `uvm_info("efuse_ctrl_scoreboard", $sformatf( \
+      "BACKDOOR PASS: addr=0x%08x data=0x%08x (%s)", \
+      (addr), (actual_data), (reason) \
+    ), UVM_HIGH) \
+  end
+
 
 class efuse_ctrl_scoreboard extends uvm_scoreboard;
 
@@ -170,12 +187,6 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Utility: Check read data matches expected value
   //==========================================================================
   extern function void check_read_data(svt_apb_transaction tr, bit [31:0] expected_data, string reason);
-  extern function void check_data_match(
-    input bit [31:0] addr,
-    input bit [31:0] expected_data,
-    input bit [31:0] actual_data,
-    input string     reason
-  );
 
   //==========================================================================
   // Utility: Check raw fuse data against expected logical data
@@ -601,25 +612,6 @@ function void efuse_ctrl_scoreboard::check_read_data(svt_apb_transaction tr, bit
   end
 endfunction
 
-function void efuse_ctrl_scoreboard::check_data_match(
-  input bit [31:0] addr,
-  input bit [31:0] expected_data,
-  input bit [31:0] actual_data,
-  input string     reason
-);
-  if (actual_data !== expected_data) begin
-    `uvm_error(get_type_name(), $sformatf(
-      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s)",
-      addr, expected_data, actual_data, reason
-    ))
-  end else begin
-    `uvm_info(get_type_name(), $sformatf(
-      "BACKDOOR PASS: addr=0x%08x data=0x%08x (%s)",
-      addr, actual_data, reason
-    ), UVM_HIGH)
-  end
-endfunction
-
 //----------------------------------------------------------------------------
 // check_fuse_raw_match: Compare expected logical data against raw fuse bits
 //   The fuse backdoor returns LFSR-encoded raw bits, so expected_data is
@@ -633,7 +625,7 @@ function void efuse_ctrl_scoreboard::check_fuse_raw_match(
 );
   bit [31:0] logic_addr;
   logic_addr = addr - EFUSE_BASE_ADDR;
-  check_data_match(addr, wr_lfsr_translate(logic_addr, expected_data), actual_data, reason);
+  `CHECK_DATA_MATCH(addr, wr_lfsr_translate(logic_addr, expected_data), actual_data, reason)
 endfunction
 
 //----------------------------------------------------------------------------
@@ -844,11 +836,11 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       // Check DUT_FUSE unchanged
       read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged");
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged")
       // Check DUT_SRAM unchanged
       read_word(logic_addr, mem_data, pri_data_sram, shd_data_sram, REF_SRAM, 1'b1);
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_SRAM, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_SRAM unchanged");
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_SRAM unchanged")
     end
     return;
   end
@@ -862,7 +854,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     backdoor_mem_type = (read_from_efuse === 1'b1) ? DUT_FUSE : DUT_SRAM;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
-    check_data_match(tr.address, hw_data, tr.data, {reason, " read backdoor"});
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, {reason, " read backdoor"})
 
     // Check ref vs dut consistency
     if (backdoor_mem_type == DUT_FUSE) begin
@@ -870,7 +862,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     end else begin
       read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
-    check_data_match(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"});
+    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"})
 
     // Normal read expects pslverr = 0
     check_pslverr(tr, 1'b0);
@@ -909,10 +901,10 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
-      check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
-      check_data_match(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"});
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
+      `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"})
 
       write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
    
@@ -920,9 +912,9 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       update_vif_sva_expect_val();
     end
     else begin
-      check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
-      check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
-      check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
+      `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
     end
 
     check_pslverr(tr, expect_pslverr);
@@ -972,17 +964,17 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     end else if (logic_addr < EFUSE_SIZE) begin
       read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE, 1'b1);
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE, 1'b1);
-      check_data_match(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged");
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "pprot1=NON_SECURE non-secure write ignored, DUT_FUSE unchanged")
     end
     return;
   end
 
   if (tr.xact_type == svt_apb_transaction::READ) begin
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-    check_data_match(tr.address, hw_data, tr.data, {reason, " read backdoor"});
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, {reason, " read backdoor"})
 
     read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
-    check_data_match(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"});
+    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"})
 
     check_pslverr(tr, 1'b0);
   end
@@ -1010,9 +1002,9 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-    check_data_match(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"});
-    check_data_match(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"});
-    check_data_match(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"});
+    `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
+    `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
+    `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
 
     check_pslverr(tr, expect_pslverr);
     write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
@@ -1449,7 +1441,7 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
     end else begin
       read_word(tr.address, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
       read_word(tr.address, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
-      check_data_match(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged");
+      `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
     end
   end else begin
     test_mode_good_trans_checker_and_ref_update(tr, tr.address, "secure master test mode efuse access");
@@ -1499,7 +1491,7 @@ task efuse_ctrl_scoreboard::apbs_efuse_access_deny_check(svt_apb_transaction tr)
   end else begin
     read_word(tr.address, mem_data, pri_data, shd_data, REF_FUSE);
     read_word(tr.address, hw_data, pri_data, shd_data, DUT_FUSE);
-    check_data_match(tr.address, mem_data, hw_data, "access denied, DUT_FUSE unchanged");
+    `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "access denied, DUT_FUSE unchanged")
   end
 endtask
 
@@ -1523,7 +1515,7 @@ task efuse_ctrl_scoreboard::apbs_efuse_load_not_done_check(svt_apb_transaction t
   end else begin
     read_word(tr.address, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
     read_word(tr.address, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-    check_data_match(tr.address, mem_data, hw_data, "efuse load not done, DUT_FUSE unchanged");
+    `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "efuse load not done, DUT_FUSE unchanged")
   end
 endtask
 
@@ -1609,7 +1601,7 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
     end else begin
       read_word(tr.address - EFUSE_BASE_ADDR, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
       read_word(tr.address - EFUSE_BASE_ADDR, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
-      check_data_match(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged");
+      `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
     end
   end else begin
     test_mode_good_trans_checker_and_ref_update(tr, tr.address - EFUSE_BASE_ADDR, "public master test mode efuse access");
@@ -1686,7 +1678,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_access_deny_check(svt_apb_transaction tr)
     // For valid eFuse region, write is ignored but eFuse data unchanged
     read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data, shd_data, REF_FUSE);
     read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data, shd_data, DUT_FUSE);
-    check_data_match(tr.address, mem_data, hw_data, "access denied, DUT_FUSE unchanged");
+    `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "access denied, DUT_FUSE unchanged")
   end
 endtask
 
@@ -1710,7 +1702,7 @@ task efuse_ctrl_scoreboard::apbp_efuse_load_not_done_check(svt_apb_transaction t
   end else begin
     read_word(tr.address - EFUSE_BASE_ADDR, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
     read_word(tr.address - EFUSE_BASE_ADDR, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-    check_data_match(tr.address, mem_data, hw_data, "efuse load not done, DUT_FUSE unchanged");
+    `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "efuse load not done, DUT_FUSE unchanged")
   end
 endtask
 
