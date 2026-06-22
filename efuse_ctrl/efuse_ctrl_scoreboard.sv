@@ -85,6 +85,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] MODE_KEY_START   = 32'h04;
   localparam bit [31:0] DEVICE_KEY_START = 32'h18;
 
+  // DCU_EN boot selection / boot configuration byte start addresses
+  localparam bit [31:0] DCU_EN_BOOT_SEL_START = 32'h90;
+  localparam bit [31:0] BOOT_CFG_START        = 32'hA0;
+
   function new(string name = "efuse_ctrl_scoreboard", uvm_component parent);
     super.new(name, parent);
   endfunction
@@ -591,6 +595,22 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
 
+  // dcu_en_boot_sel at APB offset 0x90 bit[0]
+  read_word(DCU_EN_BOOT_SEL_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  word_data[0] = cfg.dcu_en_boot_sel;
+  write_word(DCU_EN_BOOT_SEL_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(DCU_EN_BOOT_SEL_START, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(DCU_EN_BOOT_SEL_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(DCU_EN_BOOT_SEL_START, word_data, REF_SRAM, FORCE_WRITE);
+
+  // boot_cfg_sel at APB offset 0xA0 bit[31]
+  read_word(BOOT_CFG_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  word_data[31] = cfg.boot_cfg_sel;
+  write_word(BOOT_CFG_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(BOOT_CFG_START, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(BOOT_CFG_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(BOOT_CFG_START, word_data, REF_SRAM, FORCE_WRITE);
+
   // shadow_sram_acc_bit at APB offset 0xA8 bit[10]
   // top_acc_sec_region_bit at APB offset 0xA8 bit[9]
   read_word(32'hA8, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
@@ -815,11 +835,11 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   end
 
   // expect_boot_latch_pin calculation
-  efuse_ctrl_vif.expect_boot_latch_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1:8] = efuse_ctrl_vif.boot_strap_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1:8];
-  if (~efuse_ctrl_vif.expect_dcu_en_bit[0] & boot_cfg_bit[31]) begin
+  efuse_ctrl_vif.expect_boot_latch_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1:8] = efuse_ctrl_vif.boot_strap_pin_d[efuse_ctrl_vif.BOOT_PIN_NUM-1:8];
+  if (~efuse_ctrl_vif.expect_dcu_en_bit[cfg.BOOT_DBG_PIN_SEL_BIT] & boot_cfg_bit[31]) begin
     efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end else begin
-    efuse_ctrl_vif.expect_boot_latch_pin[7:0] = efuse_ctrl_vif.boot_strap_pin[7:0];
+    efuse_ctrl_vif.expect_boot_latch_pin[7:0] = efuse_ctrl_vif.boot_strap_pin_d[7:0];
   end
 
   `uvm_info(get_type_name(), $sformatf(
