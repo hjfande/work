@@ -60,9 +60,13 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   logic [test_row_size - 1 : 0] ref_test_row_2  [3:0];
   logic [test_col_size - 1 : 0] ref_test_column [1:0];
 
-  // Track whether the efuse_dcu_en register has been written by software.
-  // vif.expect_dcu_en_bit only factors in the efuse_dcu_en register value after this flag is set.
+  // Track whether efuse_dcu_en has been written with update bit = 1 (W1T trigger).
+  // vif.expect_dcu_en_bit only factors in the dcu_en source value after this trigger.
   bit                             efuse_dcu_en_written;
+
+  // Track whether expect_dcu_en_bit has already been updated in LCS_DD state.
+  // Only one update is allowed after entering LCS_DD.
+  bit                             dcu_en_dd_updated;
 
   // eFuse base address offset
   localparam bit [31:0] EFUSE_BASE_ADDR = 32'h1000;
@@ -76,6 +80,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
 
   // LCS_STATE region byte start address
   localparam bit [31:0] LCS_STATE_START = 32'h48;
+
+  // MODE_KEY / DEVICE_KEY region byte start addresses
+  localparam bit [31:0] MODE_KEY_START   = 32'h04;
+  localparam bit [31:0] DEVICE_KEY_START = 32'h18;
 
   function new(string name = "efuse_ctrl_scoreboard", uvm_component parent);
     super.new(name, parent);
@@ -364,6 +372,7 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
   foreach (ref_test_column[i]) ref_test_column[i] = '0;
 
   efuse_dcu_en_written = 1'b0;
+  dcu_en_dd_updated    = 1'b0;
 
   efuse_load_done_time     = 0;
   efuse_load_done_recorded = 1'b0;
@@ -391,6 +400,7 @@ task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
 
   // Reset software-write tracking for efuse_dcu_en register
   efuse_dcu_en_written = 1'b0;
+  dcu_en_dd_updated    = 1'b0;
 
   update_vif_sva_expect_val();
 
@@ -536,6 +546,26 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   bit [31:0] shd_data;
 
   backdoor_cfg_efuse = 1'b1;
+
+  // MODE_KEY: 128 bits at APB offsets 0x04, 0x08, 0x0C, 0x10
+  for (int i = 0; i < 4; i++) begin
+    bit [31:0] key_word = cfg.mode_key[i*32 +: 32];
+    bit [31:0] key_addr = MODE_KEY_START + i*4;
+    write_word(key_addr, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
+    write_word(key_addr, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+  end
+
+  // DEVICE_KEY: 128 bits at APB offsets 0x18, 0x1C, 0x20, 0x24
+  for (int i = 0; i < 4; i++) begin
+    bit [31:0] key_word = cfg.device_key[i*32 +: 32];
+    bit [31:0] key_addr = DEVICE_KEY_START + i*4;
+    write_word(key_addr, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
+    write_word(key_addr, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+  end
 
   // LCS_STATE: low 4 bits at APB offset 0x48
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
@@ -748,17 +778,27 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
 
   // expect_dcu_en_bit calculation
   if (lcs_state == LCS_DD) begin
-    if (efuse_dcu_en_written) begin
-      dcu_en_src = reg_model.efuse_dcu_en.get();
-    end else begin
-      dcu_en_src = '0;
+    // In LCS_DD, expect_dcu_en_bit is allowed to update only once.
+    if (!dcu_en_dd_updated) begin
+      // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit.
+      // Once software writes 1 to update, efuse_dcu_en_written is set and dcu_en_src
+      // is taken from the software-configured value stored in efuse_dcu_en0~3.
+      if (efuse_dcu_en_written) begin
+        dcu_en_src = {reg_model.efuse_dcu_en3.get(),
+                      reg_model.efuse_dcu_en2.get(),
+                      reg_model.efuse_dcu_en1.get(),
+                      reg_model.efuse_dcu_en0.get()};
+        dcu_en_dd_updated = 1'b1;
+      end else begin
+        dcu_en_src = '0;
+      end
+      read_word(32'h90, dcu_w0, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h94, dcu_w1, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h98, dcu_w2, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h9C, dcu_w3, pri_tmp, shd_tmp, DUT_SRAM);
+      dcu_en_sram_mask = {dcu_w3, dcu_w2, dcu_w1, dcu_w0};
+      efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_sram_mask;
     end
-    read_word(32'h90, dcu_w0, pri_tmp, shd_tmp, DUT_SRAM);
-    read_word(32'h94, dcu_w1, pri_tmp, shd_tmp, DUT_SRAM);
-    read_word(32'h98, dcu_w2, pri_tmp, shd_tmp, DUT_SRAM);
-    read_word(32'h9C, dcu_w3, pri_tmp, shd_tmp, DUT_SRAM);
-    dcu_en_sram_mask = {dcu_w3, dcu_w2, dcu_w1, dcu_w0};
-    efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_sram_mask;
   end
   else if (lcs_state == LCS_CM) begin
     efuse_ctrl_vif.expect_dcu_en_bit = efuse_ctrl_vif.dcu_en_cm;
@@ -1759,15 +1799,20 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
     end
 
     // Detect writes to efuse_dcu_en register.
-    // expect_dcu_en_bit only factors in the efuse_dcu_en register value once it has been written.
+    // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit; when software writes 1,
+    // it triggers an update of expect_dcu_en_bit (only once in LCS_DD).
     if (tr.xact_type == svt_apb_transaction::WRITE &&
         tr.address == reg_model.efuse_dcu_en.get_offset()) begin
+      bit update_bit;
+      update_bit = (tr.data >> reg_model.efuse_dcu_en.update.get_lsb_pos()) & 1'b1;
       `uvm_info(get_type_name(), $sformatf(
-        "[APBP_REG] efuse_dcu_en register write detected at addr=0x%08x data=0x%08x",
-        tr.address, tr.data
+        "[APBP_REG] efuse_dcu_en register write detected at addr=0x%08x data=0x%08x update=%0b",
+        tr.address, tr.data, update_bit
       ), UVM_MEDIUM)
-      efuse_dcu_en_written = 1'b1;
-      update_vif_sva_expect_val();
+      if (update_bit && !dcu_en_dd_updated) begin
+        efuse_dcu_en_written = 1'b1;
+        update_vif_sva_expect_val();
+      end
     end
 
     // Detect writes to efuse_ctrl_acc_cfg.

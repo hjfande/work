@@ -4,11 +4,12 @@ Generate preload.data file with 8Kbit (8192 bits) of data.
 
 Generation flow:
   1. Generate 8192 bits directly
-  2. Apply lcs_state to eFuse bit addresses mapped from APB 0x48
-  3. Apply wr_rd_acc_dis to eFuse bit addresses mapped from APB 0x7C/0x80
-  4. Apply top_acc_sec_region_bit to eFuse bit address mapped from APB 0xA4+41bit
-  5. Apply shadow_sram_acc_bit to eFuse bit address mapped from APB 0xA4+42bit
-  6. Write physical bit-address format output
+  2. Zero out reserved APB address ranges (MODE_KEY 0x04-0x10, DEVICE_KEY 0x18-0x24)
+  3. Apply lcs_state to eFuse bit addresses mapped from APB 0x48
+  4. Apply wr_rd_acc_dis to eFuse bit addresses mapped from APB 0x7C/0x80
+  5. Apply top_acc_sec_region_bit to eFuse bit address mapped from APB 0xA4+41bit
+  6. Apply shadow_sram_acc_bit to eFuse bit address mapped from APB 0xA4+42bit
+  7. Write physical bit-address format output
 
 LCS_STATE control:
   - low 4 bits at APB 0x48
@@ -31,6 +32,23 @@ import random
 
 # Fixed configuration
 TOTAL_BITS = 8192        # 8Kbit physical
+
+# Reserved APB address ranges that must always read as 0
+# MODE_KEY: [0x04, 0x10], DEVICE_KEY: [0x18, 0x24]
+RESERVED_KEY_RANGES = [
+    (0x04, 0x10),
+    (0x18, 0x24),
+]
+
+
+def zero_reserved_key_ranges(physical_bits):
+    """Force all bits mapped from reserved KEY address ranges to 0."""
+    for start_addr, end_addr in RESERVED_KEY_RANGES:
+        addr = start_addr
+        while addr <= end_addr:
+            write_apb_word_to_efuse(physical_bits, addr, 0, 0xFFFFFFFF)
+            addr += 4
+    return physical_bits
 
 
 def apb_addr_to_efuse_bit_addr(apb_addr):
@@ -80,11 +98,12 @@ def generate_preload_data(seed, output_file="preload.data", lcs_state=0, wr_rd_a
 
     Flow:
       1. Generate 8192 bits directly
-      2. Apply lcs_state to mapped eFuse bit addresses at APB 0x48
-      3. Apply wr_rd_acc_dis to mapped eFuse bit addresses
-      4. Apply top_acc_sec_region_bit to APB 0xA4+41bit offset
-      5. Apply shadow_sram_acc_bit to APB 0xA4+42bit offset
-      6. Write physical bit-address output
+      2. Zero out reserved APB address ranges (MODE_KEY 0x04-0x10, DEVICE_KEY 0x18-0x24)
+      3. Apply lcs_state to mapped eFuse bit addresses at APB 0x48
+      4. Apply wr_rd_acc_dis to mapped eFuse bit addresses
+      5. Apply top_acc_sec_region_bit to APB 0xA4+41bit offset
+      6. Apply shadow_sram_acc_bit to APB 0xA4+42bit offset
+      7. Write physical bit-address output
 
     Args:
         seed: Random seed for reproducible data
@@ -106,29 +125,33 @@ def generate_preload_data(seed, output_file="preload.data", lcs_state=0, wr_rd_a
     else:
         physical_bits = [random.randint(0, 1) for _ in range(TOTAL_BITS)]
 
-    # Step 2: Apply lcs_state
+    # Step 2: Zero out reserved APB address ranges (MODE_KEY / DEVICE_KEY)
+    if not all_zero:
+        zero_reserved_key_ranges(physical_bits)
+
+    # Step 3: Apply lcs_state
     # low 4 bits at APB 0x48
     if not all_zero:
         write_apb_word_to_efuse(physical_bits, 0x48, lcs_state & 0xF, 0x0000000F)
 
-    # Step 3: Apply wr_rd_acc_dis
+    # Step 4: Apply wr_rd_acc_dis
     # bit[7:0]  -> 0x7C low 8 bits (write access disable)
     # bit[15:8] -> 0x80 low 8 bits (read access disable)
     if not all_zero:
         write_apb_word_to_efuse(physical_bits, 0x7C, wr_rd_acc_dis & 0xFF, 0x000000FF)
         write_apb_word_to_efuse(physical_bits, 0x80, (wr_rd_acc_dis >> 8) & 0xFF, 0x000000FF)
 
-    # Step 4: Apply top_acc_sec_region_bit
+    # Step 5: Apply top_acc_sec_region_bit
     # APB 0xA4 + 41bit offset -> APB 0xA8 bit[9]
     if not all_zero:
         write_apb_bit_to_efuse(physical_bits, 0xA4, 41, top_acc_sec_region_bit)
 
-    # Step 5: Apply shadow_sram_acc_bit
+    # Step 6: Apply shadow_sram_acc_bit
     # APB 0xA4 + 42bit offset -> APB 0xA8 bit[10]
     if not all_zero:
         write_apb_bit_to_efuse(physical_bits, 0xA4, 42, shadow_sram_acc_bit)
 
-    # Step 6: Write preload.data in physical bit-address format
+    # Step 7: Write preload.data in physical bit-address format
     with open(output_file, 'w') as f:
         for bit_addr in range(TOTAL_BITS):
             f.write(f"@{bit_addr:08x} {physical_bits[bit_addr]}\n")

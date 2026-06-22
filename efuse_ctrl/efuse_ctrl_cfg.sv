@@ -13,8 +13,12 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(top_region_rd_disable,  UVM_ALL_ON)
     `uvm_field_int(shadow_sram_acc_bit,    UVM_ALL_ON)
     `uvm_field_int(top_acc_sec_region_bit, UVM_ALL_ON)
+    `uvm_field_int(mode_key,               UVM_ALL_ON)
+    `uvm_field_int(device_key,             UVM_ALL_ON)
     `uvm_field_int(pslverr_check_enable,   UVM_ALL_ON)
     `uvm_field_int(check_trans_before_load_done_by_single, UVM_ALL_ON)
+    `uvm_field_int(dft_dc_scan_mode,       UVM_ALL_ON)
+    `uvm_field_int(timeout_load_en,        UVM_ALL_ON)
   `uvm_object_utils_end
 
   // Update DUT SRAM from fuse read data (default disabled)
@@ -33,6 +37,12 @@ class efuse_ctrl_cfg extends uvm_object;
   // 0 = allow public master secure region access, 1 = prohibit
   rand bit top_acc_sec_region_bit = 1'b0;
 
+  // 128-bit MODE_KEY stored at APB offsets 0x04/0x08/0x0C/0x10
+  bit [127:0] mode_key;
+
+  // 128-bit DEVICE_KEY stored at APB offsets 0x18/0x1C/0x20/0x24
+  bit [127:0] device_key;
+
   // 1 = enable PSLVERR checking in scoreboard, 0 = skip PSLVERR checks
   bit pslverr_check_enable = 1'b0;
 
@@ -44,6 +54,9 @@ class efuse_ctrl_cfg extends uvm_object;
   constraint lcs_state_c {
     lcs_state inside {4'b0000, 4'b0001, 4'b0011, 4'b0111};
   }
+
+  bit dft_dc_scan_mode = 1'b0;
+  bit timeout_load_en = 1'b0;
 
   function new(string name = "efuse_ctrl_cfg");
     super.new(name);
