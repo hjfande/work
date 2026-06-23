@@ -49,7 +49,7 @@ class rom_ctrl_addr_walking_sequence extends rom_ctrl_base_sequence;
 
         // Traverse addresses from rom_patch_cfg; cfg stores word addresses,
         // convert to byte addresses by shifting left 2 bits.
-        for (int i = 0; i < cfg.rom_patch_addr.size(); i++) begin
+        for (int i = 0; i < $size(cfg.rom_patch_addr); i++) begin
             tr = rom_ctrl_transaction::type_id::create($sformatf("tr_%0d", i));
             start_item(tr);
             assert(tr.randomize() with {
