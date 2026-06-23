@@ -39,20 +39,20 @@ class rom_patch_cfg extends uvm_object;
                            output bit [ROM_CTRL_DATA_WIDTH-1:0] data);
     hit = '0;
     data = '0;
-    foreach (rom_patch_addr[i]) begin
-      if (word_addr == rom_patch_addr[i]) begin
-        for (int j = 0; j < ROM_CTRL_HIT_WIDTH; j++) begin
-          if ((i + j) < ROM_PATCH_ENTRY_NUM &&
-              rom_patch_hit[i+j] == 1'b1 &&
-              (word_addr + j) == rom_patch_addr[i+j]) begin
-            hit[j] = 1'b1;
-            data[ROM_PATCH_WORD_DATA_WIDTH*j +: ROM_PATCH_WORD_DATA_WIDTH] = rom_patch_data[i+j];
-          end else begin
-            hit[j] = 1'b0;
-          end
+
+    // For each word offset in the address group, search rom_patch_addr from
+    // the beginning. If the address matches and the hit bit is set, mark hit[j]
+    // and OR the corresponding data into the result slice.
+    for (int j = 0; j < ROM_CTRL_HIT_WIDTH; j++) begin
+      bit [ROM_PATCH_WORD_DATA_WIDTH-1:0] slice_data = '0;
+      hit[j] = 1'b0;
+      foreach (rom_patch_addr[i]) begin
+        if ((word_addr + j) == rom_patch_addr[i] && rom_patch_hit[i] == 1'b1) begin
+          hit[j] = 1'b1;
+          slice_data = slice_data | rom_patch_data[i];
         end
-        break;
       end
+      data[ROM_PATCH_WORD_DATA_WIDTH*j +: ROM_PATCH_WORD_DATA_WIDTH] = slice_data;
     end
   endfunction
 
