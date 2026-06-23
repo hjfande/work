@@ -811,7 +811,7 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
 
   // LCS_STATE: DUT_SRAM offset 0x48, low 4 bits
   read_word(LCS_STATE_START, lcs_state_word, pri_tmp, shd_tmp, DUT_SRAM);
-  lcs_state = lcs_state_word[3:0];
+  lcs_state = cfg.lcs_state;
 
   // expect_dcu_en_bit calculation
   if (lcs_state == LCS_DD) begin
@@ -856,7 +856,7 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
     boot_strap_pin_d_latched = 1'b1;
   end
-  if (~efuse_ctrl_vif.expect_dcu_en_bit[cfg.BOOT_DBG_PIN_SEL_BIT] & boot_cfg_bit[31]) begin
+  if (~cfg.dcu_en_boot_sel & cfg.boot_cfg_sel) begin
     efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
 
@@ -1106,55 +1106,31 @@ function int efuse_ctrl_scoreboard::get_region_res_index(bit [31:0] logic_addr);
 endfunction
 
 task efuse_ctrl_scoreboard::is_write_disabled(bit [31:0] logic_addr, output bit disabled);
-  bit [31:0] wr_acc_dis_word;
-  bit [31:0] pri_data;
-  bit [31:0] shd_data;
-  bit        force_normal_mode;
-  int        region_idx;
-  force_normal_mode = 1'b1;
+  int region_idx;
   region_idx = get_region_res_index(logic_addr);
   if (region_idx < 0 || region_idx > 7) begin
     disabled = 1'b0;
     return;
   end
-  read_word(WR_RD_ACC_DIS_START, wr_acc_dis_word, pri_data, shd_data, REF_SRAM, force_normal_mode);
-  disabled = wr_acc_dis_word[region_idx];
+  disabled = cfg.top_region_wr_disable[region_idx];
 endtask
 
 task efuse_ctrl_scoreboard::is_read_disabled(bit [31:0] logic_addr, output bit disabled);
-  bit [31:0] rd_acc_dis_word;
-  bit [31:0] pri_data;
-  bit [31:0] shd_data;
-  bit        force_normal_mode;
-  int        region_idx;
-  force_normal_mode = 1'b1;
+  int region_idx;
   region_idx = get_region_res_index(logic_addr);
   if (region_idx < 0 || region_idx > 7) begin
     disabled = 1'b0;
     return;
   end
-  read_word(WR_RD_ACC_DIS_START + 4, rd_acc_dis_word, pri_data, shd_data, REF_SRAM, force_normal_mode);
-  disabled = rd_acc_dis_word[region_idx];
+  disabled = cfg.top_region_rd_disable[region_idx];
 endtask
 
 task efuse_ctrl_scoreboard::get_shadow_sram_acc_bit(output bit val);
-  bit [31:0] word_data;
-  bit [31:0] pri_data;
-  bit [31:0] shd_data;
-  bit        force_normal_mode;
-  force_normal_mode = 1'b1;
-  read_word(32'hA8, word_data, pri_data, shd_data, REF_SRAM, force_normal_mode);
-  val = word_data[10];
+  val = cfg.shadow_sram_acc_bit;
 endtask
 
 task efuse_ctrl_scoreboard::get_top_acc_sec_region_bit(output bit val);
-  bit [31:0] word_data;
-  bit [31:0] pri_data;
-  bit [31:0] shd_data;
-  bit        force_normal_mode;
-  force_normal_mode = 1'b1;
-  read_word(32'hA8, word_data, pri_data, shd_data, REF_SRAM, force_normal_mode);
-  val = word_data[9];
+  val = cfg.top_acc_sec_region_bit;
 endtask
 
 function bit efuse_ctrl_scoreboard::is_secure_region(bit [31:0] addr);
