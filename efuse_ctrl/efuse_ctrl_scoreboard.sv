@@ -68,8 +68,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Only one update is allowed after entering LCS_DD.
   bit                             dcu_en_dd_updated;
 
-  // Track whether boot_strap_pin_d has already been latched into expect_boot_latch_pin.
-  bit                             boot_strap_pin_d_latched;
+  // Pulse flag to trigger latching boot_strap_pin_d into expect_boot_latch_pin.
+  // Set to 1 in auto_load_check before calling update_vif_sva_expect_val.
+  bit                             boot_strap_pin_latch_detected;
 
   // eFuse base address offset
   localparam bit [31:0] EFUSE_BASE_ADDR = 32'h1000;
@@ -383,9 +384,9 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
   foreach (ref_test_row_2[i])  ref_test_row_2[i]  = '0;
   foreach (ref_test_column[i]) ref_test_column[i] = '0;
 
-  efuse_dcu_en_written      = 1'b0;
-  dcu_en_dd_updated         = 1'b0;
-  boot_strap_pin_d_latched  = 1'b0;
+  efuse_dcu_en_written            = 1'b0;
+  dcu_en_dd_updated               = 1'b0;
+  boot_strap_pin_latch_detected   = 1'b0;
 
   efuse_load_done_time     = 0;
   efuse_load_done_recorded = 1'b0;
@@ -421,9 +422,9 @@ task efuse_ctrl_scoreboard::reset_scb_state();
   end
 
   // Reset software-write tracking for efuse_dcu_en register
-  efuse_dcu_en_written      = 1'b0;
-  dcu_en_dd_updated         = 1'b0;
-  boot_strap_pin_d_latched  = 1'b0;
+  efuse_dcu_en_written            = 1'b0;
+  dcu_en_dd_updated               = 1'b0;
+  boot_strap_pin_latch_detected   = 1'b0;
 
   update_vif_sva_expect_val();
 endtask
@@ -851,10 +852,10 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     efuse_ctrl_vif.expect_dcu_en_bit = efuse_ctrl_vif.dcu_en_cm;
   end
 
-  // expect_boot_latch_pin calculation
-  if (!boot_strap_pin_d_latched) begin
+  // expect_boot_latch_pin calculation: latch only when triggered by auto_load
+  if (boot_strap_pin_latch_detected) begin
     efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
-    boot_strap_pin_d_latched = 1'b1;
+    boot_strap_pin_latch_detected = 1'b0;
   end
   if (~cfg.dcu_en_boot_sel & cfg.boot_cfg_sel) begin
     efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
@@ -1862,6 +1863,7 @@ task efuse_ctrl_scoreboard::auto_load_check();
   efuse_load_done_recorded = 1'b1;
   `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
   do_load_verify("auto load");
+  boot_strap_pin_latch_detected = 1'b1;
   update_vif_sva_expect_val();
 endtask
 
