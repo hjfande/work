@@ -25,10 +25,13 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
     endtask
 
     virtual task run_phase(uvm_phase phase);
+        rom_ctrl_transaction rsp;
         forever begin
             seq_item_port.get_next_item(req);
             drive_item(req);
-            seq_item_port.item_done();
+            $cast(rsp, req.clone());
+            rsp.set_id_info(req);
+            seq_item_port.item_done(rsp);
         end
     endtask
 
