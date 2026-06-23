@@ -104,6 +104,11 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   extern virtual task reset_phase(uvm_phase phase);
 
   //==========================================================================
+  // Reset scoreboard state: copy DUT_FUSE to ref model and clear state flags
+  //==========================================================================
+  extern task reset_scb_state();
+
+  //==========================================================================
   // Utility: Read a 32-bit word by eFuse logical offset (via ReadFuse)
   //   addr is the logical offset relative to EFUSE_BASE_ADDR.
   //   A_i = addr[8:2]          -> primary
@@ -400,6 +405,15 @@ task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
   `uvm_info(get_type_name(), "Applying cfg to DUT_FUSE", UVM_MEDIUM)
   apply_cfg_to_fuse_sram();
 
+  reset_scb_state();
+
+  phase.drop_objection(this);
+endtask
+
+//----------------------------------------------------------------------------
+// reset_scb_state: copy DUT_FUSE to reference model and clear scoreboard state
+//----------------------------------------------------------------------------
+task efuse_ctrl_scoreboard::reset_scb_state();
   // Copy DUT_FUSE to reference model
   `uvm_info(get_type_name(), "Copying DUT_FUSE to ref_fuse_data", UVM_MEDIUM)
   foreach (ref_fuse_data[i]) begin
@@ -412,8 +426,6 @@ task efuse_ctrl_scoreboard::reset_phase(uvm_phase phase);
   boot_strap_pin_d_latched  = 1'b0;
 
   update_vif_sva_expect_val();
-
-  phase.drop_objection(this);
 endtask
 
 task efuse_ctrl_scoreboard::read_word(
