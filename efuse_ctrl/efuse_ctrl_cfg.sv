@@ -17,6 +17,9 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(device_key,             UVM_ALL_ON)
     `uvm_field_int(dcu_en_boot_sel,        UVM_ALL_ON)
     `uvm_field_int(boot_cfg_sel,           UVM_ALL_ON)
+    `uvm_field_int(rom_patch_hit,          UVM_ALL_ON)
+    `uvm_field_sarray_int(rom_patch_addr,  UVM_ALL_ON)
+    `uvm_field_sarray_int(rom_patch_data,  UVM_ALL_ON)
     `uvm_field_int(pslverr_check_enable,   UVM_ALL_ON)
     `uvm_field_int(check_trans_before_load_done_by_single, UVM_ALL_ON)
     `uvm_field_int(dft_dc_scan_mode,       UVM_ALL_ON)
@@ -50,6 +53,15 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // Boot configuration selection value at APB offset 0xA0 bit[31]
   bit boot_cfg_sel = 1'b0;
+
+  // ROM patch hit vector at APB offset 0x13C
+  bit [31:0] rom_patch_hit;
+
+  // ROM patch addresses (16-bit x 32 entries) starting at APB offset 0x140
+  bit [15:0] rom_patch_addr [32];
+
+  // ROM patch data (32-bit x 32 entries) starting at APB offset 0x180
+  bit [31:0] rom_patch_data [32];
 
   // 1 = enable PSLVERR checking in scoreboard, 0 = skip PSLVERR checks
   bit pslverr_check_enable = 1'b0;

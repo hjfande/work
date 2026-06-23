@@ -93,6 +93,12 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] DCU_EN_BOOT_SEL_START = 32'h90;
   localparam bit [31:0] BOOT_CFG_START        = 32'hA0;
 
+  // ROM patch region byte start addresses
+  localparam bit [31:0] ROM_PATCH_HIT_START   = 32'h13C;
+  localparam bit [31:0] ROM_PATCH_ADDR_START  = 32'h140;
+  localparam bit [31:0] ROM_PATCH_DATA_START  = 32'h180;
+  localparam int        ROM_PATCH_NUM         = 32;
+
   function new(string name = "efuse_ctrl_scoreboard", uvm_component parent);
     super.new(name, parent);
   endfunction
@@ -335,8 +341,14 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   extern task software_load_check();
   extern task do_load_verify(string reason);
 
-  // Event triggered by apbp_reg_checker when efuse_done_status bit becomes 1
+  // Event triggered by apbp_reg_checker when efuse_sw_load.cfg W1T is detected
+  // and then reg_model.efuse_done_status.sw_load becomes 1.
   event software_load_done_event;
+
+  // Track whether efuse_sw_load.cfg write-1-to-trigger has been detected.
+  // software_load_done_event is only triggered after this flag is set and
+  // reg_model.efuse_done_status.sw_load becomes 1.
+  bit software_load_started;
 
   // Real time when efuse_load_done rising edge was observed.
   // Used to determine whether an APB transaction started before or after load done.
@@ -387,6 +399,7 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
   efuse_dcu_en_written            = 1'b0;
   dcu_en_dd_updated               = 1'b0;
   boot_strap_pin_latch_detected   = 1'b0;
+  software_load_started           = 1'b0;
 
   efuse_load_done_time     = 0;
   efuse_load_done_recorded = 1'b0;
@@ -425,6 +438,7 @@ task efuse_ctrl_scoreboard::reset_scb_state();
   efuse_dcu_en_written            = 1'b0;
   dcu_en_dd_updated               = 1'b0;
   boot_strap_pin_latch_detected   = 1'b0;
+  software_load_started           = 1'b0;
 
   update_vif_sva_expect_val();
 endtask
@@ -638,6 +652,34 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   write_word(32'hA8, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(32'hA8, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   write_word(32'hA8, word_data, REF_SRAM, FORCE_WRITE);
+
+  // ROM patch hit vector at APB offset 0x13C
+  read_word(ROM_PATCH_HIT_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  word_data = cfg.rom_patch_hit;
+  write_word(ROM_PATCH_HIT_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(ROM_PATCH_HIT_START, word_data, DUT_SRAM, FORCE_WRITE);
+  write_word(ROM_PATCH_HIT_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(ROM_PATCH_HIT_START, word_data, REF_SRAM, FORCE_WRITE);
+
+  // ROM patch addresses (16-bit x 32 entries, packed 2 per word) at APB offset 0x140
+  for (int i = 0; i < ROM_PATCH_NUM/2; i++) begin
+    bit [31:0] addr_offset = ROM_PATCH_ADDR_START + i*4;
+    bit [31:0] patch_addr_word = {cfg.rom_patch_addr[2*i+1], cfg.rom_patch_addr[2*i]};
+    write_word(addr_offset, patch_addr_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_word(addr_offset, patch_addr_word, DUT_SRAM, FORCE_WRITE);
+    write_word(addr_offset, patch_addr_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_word(addr_offset, patch_addr_word, REF_SRAM, FORCE_WRITE);
+  end
+
+  // ROM patch data (32-bit x 32 entries) at APB offset 0x180
+  for (int i = 0; i < ROM_PATCH_NUM; i++) begin
+    bit [31:0] addr_offset = ROM_PATCH_DATA_START + i*4;
+    bit [31:0] patch_data_word = cfg.rom_patch_data[i];
+    write_word(addr_offset, patch_data_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_word(addr_offset, patch_data_word, DUT_SRAM, FORCE_WRITE);
+    write_word(addr_offset, patch_data_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_word(addr_offset, patch_data_word, REF_SRAM, FORCE_WRITE);
+  end
 
   backdoor_cfg_efuse = 1'b0;
 endtask
@@ -1805,11 +1847,26 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
       tr.xact_type.name(), tr.address, tr.data
     ), UVM_MEDIUM)
 
-    // Detect software load done: efuse_done_status bit1 becomes 1 on read
-    if (tr.xact_type == svt_apb_transaction::READ &&
-        tr.address == reg_model.efuse_done_status.get_offset() &&
-        tr.data[1] == 1'b1) begin
-      `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status[1]=1)", UVM_MEDIUM)
+    // Detect software load trigger: efuse_sw_load.cfg write-1-to-trigger
+    if (tr.xact_type == svt_apb_transaction::WRITE &&
+        tr.address == reg_model.efuse_sw_load.get_offset()) begin
+      bit cfg_bit;
+      cfg_bit = (tr.data >> reg_model.efuse_sw_load.cfg.get_lsb_pos()) & 1'b1;
+      if (cfg_bit) begin
+        `uvm_info(get_type_name(), $sformatf(
+          "[LOAD] software load trigger detected (efuse_sw_load.cfg=1) at addr=0x%08x data=0x%08x",
+          tr.address, tr.data
+        ), UVM_MEDIUM)
+        software_load_started = 1'b1;
+      end
+    end
+
+    // Detect software load done: reg_model.efuse_done_status.sw_load == 1
+    // Only trigger if efuse_sw_load.cfg W1T has been detected first.
+    if (software_load_started &&
+        reg_model.efuse_done_status.sw_load.get() == 1'b1) begin
+      `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status.sw_load=1)", UVM_MEDIUM)
+      software_load_started = 1'b0;
       -> software_load_done_event;
     end
 
