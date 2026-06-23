@@ -1857,25 +1857,29 @@ endtask
 // auto_load_check: Wait for efuse_load_done and verify loaded data
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::auto_load_check();
-  `uvm_info(get_type_name(), "[LOAD] waiting for auto load done (efuse_load_done)", UVM_MEDIUM)
-  @(posedge efuse_ctrl_vif.efuse_load_done);
-  efuse_load_done_time     = $realtime;
-  efuse_load_done_recorded = 1'b1;
-  `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
-  do_load_verify("auto load");
-  boot_strap_pin_latch_detected = 1'b1;
-  update_vif_sva_expect_val();
+  forever begin
+    `uvm_info(get_type_name(), "[LOAD] waiting for auto load done (efuse_load_done)", UVM_MEDIUM)
+    @(posedge efuse_ctrl_vif.efuse_load_done);
+    efuse_load_done_time     = $realtime;
+    efuse_load_done_recorded = 1'b1;
+    `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
+    do_load_verify("auto load");
+    boot_strap_pin_latch_detected = 1'b1;
+    update_vif_sva_expect_val();
+  end
 endtask
 
 //----------------------------------------------------------------------------
 // software_load_check: Wait for efuse_done_status[1]=1 and verify loaded data
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::software_load_check();
-  `uvm_info(get_type_name(), "[LOAD] waiting for software load done (efuse_done_status[0]=1)", UVM_MEDIUM)
-  @software_load_done_event;
-  `uvm_info(get_type_name(), "[LOAD] software load done detected", UVM_MEDIUM)
-  do_load_verify("software load");
-  update_vif_sva_expect_val();
+  forever begin
+    `uvm_info(get_type_name(), "[LOAD] waiting for software load done (efuse_done_status[0]=1)", UVM_MEDIUM)
+    @software_load_done_event;
+    `uvm_info(get_type_name(), "[LOAD] software load done detected", UVM_MEDIUM)
+    do_load_verify("software load");
+    update_vif_sva_expect_val();
+  end
 endtask
 
 //----------------------------------------------------------------------------
