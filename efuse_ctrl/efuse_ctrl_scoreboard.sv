@@ -72,6 +72,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Set to 1 in auto_load_check before calling update_vif_sva_expect_val.
   bit                             boot_strap_pin_latch_detected;
 
+  // Persisted low byte of boot_strap_pin_d, latched when boot_strap_pin_latch_detected
+  // is set. Used to restore expect_boot_latch_pin[7:0] on each update_vif_sva_expect_val.
+  bit [7:0]                       boot_latch_pin_low;
+
   // eFuse base address offset
   localparam bit [31:0] EFUSE_BASE_ADDR = 32'h1000;
 
@@ -401,6 +405,7 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
   efuse_dcu_en_written            = 1'b0;
   dcu_en_dd_updated               = 1'b0;
   boot_strap_pin_latch_detected   = 1'b0;
+  boot_latch_pin_low              = '0;
   software_load_started           = 1'b0;
 
   efuse_load_done_time     = 0;
@@ -440,6 +445,7 @@ task efuse_ctrl_scoreboard::reset_scb_state();
   efuse_dcu_en_written            = 1'b0;
   dcu_en_dd_updated               = 1'b0;
   boot_strap_pin_latch_detected   = 1'b0;
+  boot_latch_pin_low              = '0;
   software_load_started           = 1'b0;
 
   update_vif_sva_expect_val();
@@ -906,13 +912,15 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   // expect_boot_latch_pin calculation: latch only when triggered by auto_load
   if (boot_strap_pin_latch_detected) begin
     efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
+    boot_latch_pin_low = efuse_ctrl_vif.boot_strap_pin_d[7:0];
     boot_strap_pin_latch_detected = 1'b0;
   end
+  efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_latch_pin_low;
   if (cfg.lcs_state == LCS_CM || cfg.lcs_state == LCS_DM) begin
-      if (cfg.boot_cfg_vld)
-        efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
-  end 
-  else if(cfg.lcs_state == LCS_DD) begin
+    if (cfg.boot_cfg_vld)
+      efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+  end
+  else if (cfg.lcs_state == LCS_DD) begin
     if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_vld)
       efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
