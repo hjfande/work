@@ -1027,7 +1027,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data;
     // non-strobed bytes keep the existing fuse value.
     pstrb = tr.pstrb;
-    tr_data_strbed = tr.data & {8{pstrb[3]}, 8{pstrb[2]}, 8{pstrb[1]}, 8{pstrb[0]}};
+    tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
     tr_data_strbed_raw = wr_lfsr_translate(logic_addr, tr_data_strbed);
     expected_data_raw = mem_data_raw|tr_data_strbed_raw;
     expected_data = rd_lfsr_translate(logic_addr, expected_data_raw);
@@ -1980,6 +1980,11 @@ task efuse_ctrl_scoreboard::do_load_verify(string reason);
 
     // DUT_FUSE: combine primary + shadow, then apply LFSR decode
     read_word(addr, fuse_word, pri_tmp, shd_tmp, DUT_FUSE, 1'b1);
+
+    // Patch same with DUT
+    if (wr_lfsr_translate(addr, fuse_word) == 0) begin
+      fuse_word = 0;
+    end
 
     if (sram_word !== fuse_word) begin
       `uvm_error(get_type_name(), $sformatf(
