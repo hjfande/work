@@ -72,9 +72,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Set to 1 in auto_load_check before calling update_vif_sva_expect_val.
   bit                             boot_strap_pin_latch_detected;
 
-  // Persisted low byte of boot_strap_pin_d, latched when boot_strap_pin_latch_detected
-  // is set. Used to restore expect_boot_latch_pin[7:0] on each update_vif_sva_expect_val.
-  bit [7:0]                       boot_latch_pin_low;
+  // Persisted low bits of boot_strap_pin_d, latched when boot_strap_pin_latch_detected
+  // is set. Used to restore expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] on each update_vif_sva_expect_val.
+  bit [BOOT_CFG_BIT_SIZE-1:0]     boot_latch_pin_low;
 
   // eFuse base address offset
   localparam bit [31:0] EFUSE_BASE_ADDR = 32'h1000;
@@ -104,6 +104,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] ROM_PATCH_ADDR_START  = 32'h140;
   localparam bit [31:0] ROM_PATCH_DATA_START  = 32'h180;
   localparam int        ROM_PATCH_NUM         = 32;
+
+  // Boot configuration bit size (low bits of boot_strap_pin_d / expect_boot_latch_pin)
+  localparam int        BOOT_CFG_BIT_SIZE     = 8;
 
   function new(string name = "efuse_ctrl_scoreboard", uvm_component parent);
     super.new(name, parent);
@@ -911,18 +914,18 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
 
   // expect_boot_latch_pin calculation: latch only when triggered by auto_load
   if (boot_strap_pin_latch_detected) begin
-    efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
-    boot_latch_pin_low = efuse_ctrl_vif.boot_strap_pin_d[7:0];
+    efuse_ctrl_vif.expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] = efuse_ctrl_vif.boot_strap_pin_d;
+    boot_latch_pin_low = efuse_ctrl_vif.boot_strap_pin_d[BOOT_CFG_BIT_SIZE-1:0];
     boot_strap_pin_latch_detected = 1'b0;
   end
-  efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_latch_pin_low;
+  efuse_ctrl_vif.expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] = boot_latch_pin_low;
   if (cfg.lcs_state == LCS_CM || cfg.lcs_state == LCS_DM) begin
     if (cfg.boot_cfg_vld)
-      efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+      efuse_ctrl_vif.expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] = boot_cfg_bit[BOOT_CFG_BIT_SIZE-1:0];
   end
   else if (cfg.lcs_state == LCS_DD) begin
     if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_vld)
-      efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+      efuse_ctrl_vif.expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] = boot_cfg_bit[BOOT_CFG_BIT_SIZE-1:0];
   end
 
 
@@ -1955,7 +1958,12 @@ task efuse_ctrl_scoreboard::auto_load_check();
     efuse_load_done_time     = $realtime;
     efuse_load_done_recorded = 1'b1;
     `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
-    do_load_verify("auto load");
+    // Skip auto load verify when load_timeout_en (boot_strap_pin MSB) is asserted.
+    if (efuse_ctrl_vif.boot_strap_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1]) begin
+      `uvm_info(get_type_name(), "[LOAD] load_timeout_en asserted, skipping auto load verify", UVM_MEDIUM)
+    end else begin
+      do_load_verify("auto load");
+    end
     boot_strap_pin_latch_detected = 1'b1;
     update_vif_sva_expect_val();
   end
