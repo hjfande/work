@@ -1048,11 +1048,12 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
+      // Shadow-SRAM-only write: fuse data remains unchanged, SRAM is updated.
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
-      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " DUT_FUSE primary unchanged"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " DUT_FUSE shadow unchanged"})
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, " DUT_FUSE decoded unchanged"})
       `CHECK_DATA_MATCH(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"})
 
       write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
@@ -1061,13 +1062,17 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       update_vif_sva_expect_val();
     end
     else begin
+      // Normal fuse write: primary/shadow/decoded fuse are updated.
       `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
       `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
     end
 
     check_pslverr(tr, expect_pslverr);
-    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
+    // Only update reference fuse model for normal fuse writes, not shadow-SRAM-only writes.
+    if (!(wr_en == 1'b1 && shadow_sram_acc == 1'b0)) begin
+      write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
+    end
   end
 endtask
 
