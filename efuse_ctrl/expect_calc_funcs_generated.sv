@@ -75,7 +75,7 @@
     bit [3:0]  lcs_state;
     bit [31:0] lcs_state_word;
     bit [127:0] dcu_en_src;
-    bit [127:0] dcu_en_sram_mask;
+    bit [127:0] dcu_en_lock;
     bit [31:0] w0;
     bit [31:0] w1;
     bit [31:0] w2;
@@ -95,8 +95,8 @@
       w1 = read_dut_sram_word_via_vif(32'h94);
       w2 = read_dut_sram_word_via_vif(32'h98);
       w3 = read_dut_sram_word_via_vif(32'h9C);
-      dcu_en_sram_mask = {w3, w2, w1, w0};
-      efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_sram_mask;
+      dcu_en_lock = {w3, w2, w1, w0};
+      efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
     end
     else if (lcs_state == LCS_CM) begin
       efuse_ctrl_vif.expect_dcu_en_bit = efuse_ctrl_vif.dcu_en_cm;

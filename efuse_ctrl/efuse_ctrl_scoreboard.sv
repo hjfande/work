@@ -805,12 +805,12 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   bit [31:0] ana_w6;
   bit [31:0] ana_w7;
   bit [31:0] boot_cfg_bit;
-  bit [31:0] dcu_w0;
-  bit [31:0] dcu_w1;
-  bit [31:0] dcu_w2;
-  bit [31:0] dcu_w3;
+  bit [31:0] dcu_en_lock_w0;
+  bit [31:0] dcu_en_lock_w1;
+  bit [31:0] dcu_en_lock_w2;
+  bit [31:0] dcu_en_lock_w3;
   bit [127:0] dcu_en_src;
-  bit [127:0] dcu_en_sram_mask;
+  bit [127:0] dcu_en_lock;
 
   // LCS_STATE enum values
   localparam bit [3:0] LCS_CM = 4'b0000;
@@ -879,12 +879,12 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
       end else begin
         dcu_en_src = '0;
       end
-      read_word(32'h90, dcu_w0, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h94, dcu_w1, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h98, dcu_w2, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h9C, dcu_w3, pri_tmp, shd_tmp, DUT_SRAM);
-      dcu_en_sram_mask = {dcu_w3, dcu_w2, dcu_w1, dcu_w0};
-      efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_sram_mask;
+      read_word(32'h90, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h94, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h98, dcu_en_lock_w2, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(32'h9C, dcu_en_lock_w3, pri_tmp, shd_tmp, DUT_SRAM);
+      dcu_en_lock = {dcu_en_lock_w3, dcu_en_lock_w2, dcu_en_lock_w1, dcu_en_lock_w0};
+      efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
     end
   end
   else if (lcs_state == LCS_CM) begin
