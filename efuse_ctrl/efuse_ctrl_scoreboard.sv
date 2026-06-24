@@ -145,12 +145,13 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
-  // Utility: Write raw 32-bit word to FUSE primary and shadow planes without LFSR
-  //   word_data is written to both primary and shadow planes as-is.
+  // Utility: Write independent raw 32-bit words to FUSE primary and shadow planes
+  //   pri_word_data / shd_word_data are the raw words to write.
   //==========================================================================
-  extern task write_fuse_word_no_lfsr(
+  extern task write_fuse_word_by_pri_sdh(
     input bit [31:0]      addr,
-    input bit [31:0]      word_data,
+    input bit [31:0]      pri_word_data,
+    input bit [31:0]      shd_word_data,
     input mem_type_enum   mem_type,
     input write_type_enum write_type = FORCE_WRITE,
     input bit             force_normal_mode = 1'b0
@@ -537,12 +538,13 @@ task efuse_ctrl_scoreboard::write_word(
 endtask
 
 //----------------------------------------------------------------------------
-// write_fuse_word_no_lfsr: Write raw word to primary and shadow planes without LFSR
-//   word_data is written to both primary and shadow planes as-is.
+// write_fuse_word_by_pri_sdh: Write independent raw words to primary and shadow planes
+//   pri_word_data / shd_word_data are raw 32-bit words.
 //----------------------------------------------------------------------------
-task efuse_ctrl_scoreboard::write_fuse_word_no_lfsr(
+task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
   input bit [31:0]      addr,
-  input bit [31:0]      word_data,
+  input bit [31:0]      pri_word_data,
+  input bit [31:0]      shd_word_data,
   input mem_type_enum   mem_type,
   input write_type_enum write_type,
   input bit             force_normal_mode
@@ -556,18 +558,20 @@ task efuse_ctrl_scoreboard::write_fuse_word_no_lfsr(
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
 
   for (int i = 0; i < out_size; i++) begin
-    bit_data = word_data[i];
+    bit_data = pri_word_data[i];
 
     bit_A = {i[out_addr_size-1:0], pri_A[read_addr_size-1:0]};
     WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+
+    bit_data = shd_word_data[i];
 
     bit_A = {i[out_addr_size-1:0], shd_A[read_addr_size-1:0]};
     WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
   end
 
   `uvm_info(get_type_name(), $sformatf(
-    "Write fuse word no LFSR: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b data=0x%08x",
-    addr, mem_type.name(), write_type.name(), force_normal_mode, word_data
+    "Write fuse word planes: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b pri=0x%08x shd=0x%08x",
+    addr, mem_type.name(), write_type.name(), force_normal_mode, pri_word_data, shd_word_data
   ), UVM_HIGH)
 endtask
 
@@ -586,9 +590,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   for (int i = 0; i < 4; i++) begin
     bit [31:0] key_word = cfg.mode_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = MODE_KEY_START + i*4;
-    write_fuse_word_no_lfsr(key_addr, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
     write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
-    write_fuse_word_no_lfsr(key_addr, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
     write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
   end
 
@@ -597,9 +601,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   for (int i = 0; i < 4; i++) begin
     bit [31:0] key_word = cfg.device_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = DEVICE_KEY_START + i*4;
-    write_fuse_word_no_lfsr(key_addr, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
     write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
-    write_fuse_word_no_lfsr(key_addr, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
     write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
   end
 
@@ -1011,23 +1015,24 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     bit expect_pslverr;
     bit wr_en;
     bit [3:0] pstrb;
-    int byte_idx;
-    bit [31:0] new_one;
     bit [31:0] new_one_raw;
+    bit [31:0] tr_data_strbed;
+    bit [31:0] tr_data_strbed_raw;
+    bit [31:0] mem_data_raw;
+    bit [31:0] expected_data_raw;
 
     read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
+    mem_data_raw = wr_lfsr_translate(logic_addr, mem_data);
 
     // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data;
     // non-strobed bytes keep the existing fuse value.
     pstrb = tr.pstrb;
-    expected_data = mem_data;
-    for (byte_idx = 0; byte_idx < 4; byte_idx++) begin
-      if (pstrb[byte_idx]) begin
-        expected_data[byte_idx*8 +: 8] = mem_data[byte_idx*8 +: 8] | tr.data[byte_idx*8 +: 8];
-      end
-    end
-    new_one     = expected_data & ~mem_data;
-    new_one_raw = wr_lfsr_translate(logic_addr, new_one);
+    tr_data_strbed = tr.data & {8{pstrb[3]}, 8{pstrb[2]}, 8{pstrb[1]}, 8{pstrb[0]}};
+    tr_data_strbed_raw = wr_lfsr_translate(logic_addr, tr_data_strbed);
+    expected_data_raw = mem_data_raw|tr_data_strbed_raw;
+    expected_data = rd_lfsr_translate(logic_addr, expected_data_raw);
+
+    new_one_raw = expected_data_raw & ~mem_data_raw; // new bits that will be written to fuse
     expect_pslverr = 1'b0;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
@@ -1039,7 +1044,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
       `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
-      `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
       `CHECK_DATA_MATCH(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"})
 
       write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
@@ -1050,11 +1055,11 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     else begin
       `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
-      `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
     end
 
     check_pslverr(tr, expect_pslverr);
-    write_fuse_word_no_lfsr(logic_addr, pri_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
@@ -1143,7 +1148,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
 
     check_pslverr(tr, expect_pslverr);
-    write_fuse_word_no_lfsr(logic_addr, pri_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
