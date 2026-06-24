@@ -605,7 +605,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
 
   // LCS_STATE: low 4 bits at APB offset 0x48
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-  word_data[3:0] = cfg.lcs_state;
+  word_data[3:0] = bit[3:0]'(cfg.lcs_state);
   write_word(LCS_STATE_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
   write_word(LCS_STATE_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(LCS_STATE_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
@@ -854,10 +854,10 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
 
   // LCS_STATE: DUT_SRAM offset 0x48, low 4 bits
   read_word(LCS_STATE_START, lcs_state_word, pri_tmp, shd_tmp, DUT_SRAM);
-  lcs_state = cfg.lcs_state;
+  lcs_state = bit[3:0]'(cfg.lcs_state);
 
   // Drive cfg lcs_state to vif for SVA/reference use
-  efuse_ctrl_vif.lcs_state = cfg.lcs_state;
+  efuse_ctrl_vif.lcs_state = bit[3:0]'(cfg.lcs_state);
 
   // expect_dcu_en_bit calculation
   if (lcs_state == LCS_DD) begin
@@ -902,9 +902,15 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
     boot_strap_pin_latch_detected = 1'b0;
   end
-  if (~cfg.dcu_en_boot_sel & cfg.boot_cfg_sel) begin
-    efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+  if (((cfg.lcs_state == LCS_CM) || (cfg.lcs_state == LCS_DM))) begin
+    if (cfg.boot_cfg_sel)
+      efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
+  else if (cfg.lcs_state == LCS_DD) begin
+    if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_sel)
+      efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+  end
+
 
   `uvm_info(get_type_name(), $sformatf(
     "update_vif_sva_expect_val: LCS_STATE=0x%0x device_id=0x%08x feature_cfg=0x%016x memory_cfg=0x%024x analog=0x%064x dcu_en=0x%032x boot_latch=%p",

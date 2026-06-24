@@ -2,13 +2,23 @@
 `define EFUSE_CTRL_CFG_SV
 
 //----------------------------------------------------------------------------
+// Life cycle state enum
+//----------------------------------------------------------------------------
+typedef enum bit [3:0] {
+  LCS_CM = 4'b0000,
+  LCS_DM = 4'b0001,
+  LCS_DD = 4'b0011,
+  LCS_DR = 4'b0111
+} lcs_state_e;
+
+//----------------------------------------------------------------------------
 // eFuse Controller Configuration Object
 //----------------------------------------------------------------------------
 class efuse_ctrl_cfg extends uvm_object;
 
   `uvm_object_utils_begin(efuse_ctrl_cfg)
     `uvm_field_int(READ_UPDATE_SRAM,       UVM_ALL_ON)
-    `uvm_field_int(lcs_state,              UVM_ALL_ON)
+    `uvm_field_enum(lcs_state_e, lcs_state, UVM_ALL_ON)
     `uvm_field_int(top_region_wr_disable,  UVM_ALL_ON)
     `uvm_field_int(top_region_rd_disable,  UVM_ALL_ON)
     `uvm_field_int(shadow_sram_acc_bit,    UVM_ALL_ON)
@@ -30,7 +40,7 @@ class efuse_ctrl_cfg extends uvm_object;
   rand bit READ_UPDATE_SRAM = 1'b0;
 
   // Life cycle state
-  rand bit [3:0] lcs_state;
+  rand lcs_state_e lcs_state;
 
   // Region access disable settings (bit[i] -> region_res_i)
   rand bit [7:0] top_region_wr_disable;
@@ -72,7 +82,7 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // LCS_STATE constraint: only CM/DM/DD/DR are valid
   constraint lcs_state_c {
-    lcs_state inside {4'b0000, 4'b0001, 4'b0011, 4'b0111};
+    lcs_state inside {LCS_CM, LCS_DM, LCS_DD, LCS_DR};
   }
 
   bit dft_dc_scan_mode = 1'b0;
