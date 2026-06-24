@@ -89,6 +89,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] MODE_KEY_START   = 32'h04;
   localparam bit [31:0] DEVICE_KEY_START = 32'h18;
 
+  // DCU_EN lock bit region byte start address
+  localparam bit [31:0] DCU_EN_LOCK_BIT_START = 32'h90;
+
   // Boot configuration byte start address
   localparam bit [31:0] BOOT_CFG_START        = 32'hA0;
 
@@ -626,6 +629,16 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
 
+  // dcu_en_lock_bit at APB offsets 0x90, 0x94, 0x98, 0x9C
+  for (int i = 0; i < 4; i++) begin
+    bit [31:0] lock_addr = DCU_EN_LOCK_BIT_START + i*4;
+    bit [31:0] lock_word = cfg.dcu_en_lock_bit[i];
+    write_word(lock_addr, lock_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+    write_word(lock_addr, lock_word, DUT_SRAM, FORCE_WRITE);
+    write_word(lock_addr, lock_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_word(lock_addr, lock_word, REF_SRAM, FORCE_WRITE);
+  end
+
   // boot_cfg_vld at APB offset 0xA0 bit[31]
   read_word(BOOT_CFG_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[31] = cfg.boot_cfg_vld;
@@ -893,11 +906,13 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
     boot_strap_pin_latch_detected = 1'b0;
   end
-  if (cfg.lcs_state == LCS_DD) begin
+  if (cfg.lcs_state == LCS_CM || cfg.lcs_state == LCS_DM) begin
+      if (cfg.boot_cfg_vld)
+        efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
+  end 
+  else if(cfg.lcs_state == LCS_DD) begin
     if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_vld)
       efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
-  end else if (cfg.lcs_state == LCS_DR) begin
-    efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
 
 
