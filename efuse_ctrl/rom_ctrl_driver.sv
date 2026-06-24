@@ -3,6 +3,7 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
     `uvm_component_utils(rom_ctrl_driver)
 
     virtual rom_ctrl_if vif;
+    rom_ctrl_config cfg;
 
     function new(string name = "rom_ctrl_driver", uvm_component parent = null);
         super.new(name, parent);
@@ -12,6 +13,10 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
         super.build_phase(phase);
         if (!uvm_config_db#(virtual rom_ctrl_if)::get(this, "", "vif", vif)) begin
             `uvm_fatal(get_type_name(), "Failed to get virtual interface from config DB")
+        end
+        if (!uvm_config_db#(rom_ctrl_config)::get(this, "", "cfg", cfg)) begin
+            `uvm_info(get_type_name(), "No rom_ctrl_config found in config DB, using default", UVM_MEDIUM)
+            cfg = rom_ctrl_config::type_id::create("cfg");
         end
     endfunction
 
@@ -54,9 +59,15 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
         // Deassert addr_vld after one cycle, keep addr for reference
         vif.drv_cb.rom_ctrl_addr_vld <= 1'b0;
 
-        // Wait for response from DUT
-        while (!vif.drv_cb.rom_patch_data_vld) begin
-            @(vif.drv_cb);
+        // Wait (back_pipe + front_pipe) cycles before sampling response
+        repeat (cfg.back_pipe + cfg.front_pipe) @(vif.drv_cb);
+
+        // Check response valid
+        if (!vif.drv_cb.rom_patch_data_vld) begin
+            `uvm_error(get_type_name(), $sformatf(
+              "rom_patch_data_vld is not asserted after %0d cycles (back_pipe=%0d front_pipe=%0d)",
+              cfg.back_pipe + cfg.front_pipe, cfg.back_pipe, cfg.front_pipe
+            ))
         end
 
         // Capture response

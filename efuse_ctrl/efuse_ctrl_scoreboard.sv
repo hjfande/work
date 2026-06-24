@@ -856,6 +856,9 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   read_word(LCS_STATE_START, lcs_state_word, pri_tmp, shd_tmp, DUT_SRAM);
   lcs_state = cfg.lcs_state;
 
+  // Drive cfg lcs_state to vif for SVA/reference use
+  efuse_ctrl_vif.lcs_state = cfg.lcs_state;
+
   // expect_dcu_en_bit calculation
   if (lcs_state == LCS_DD) begin
     // In LCS_DD, expect_dcu_en_bit is allowed to update only once.

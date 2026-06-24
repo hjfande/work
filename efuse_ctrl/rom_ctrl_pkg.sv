@@ -40,14 +40,18 @@ package rom_ctrl_pkg;
         int min_addr_hold_cycles = 1;
         int max_addr_hold_cycles = 3;
 
+        // Pipeline delays
+        int front_pipe = 0;  // additional cycles before sampling response
+        int back_pipe  = 0;  // base cycles after addr_vld before sampling response
+
         function new(string name = "rom_ctrl_config");
             super.new(name);
         endfunction
 
         virtual function string convert2string();
             string s;
-            s = $sformatf("is_active=%s, has_checks=%0b, has_coverage=%0b",
-                          is_active.name(), has_checks, has_coverage);
+            s = $sformatf("is_active=%s, has_checks=%0b, has_coverage=%0b, front_pipe=%0d, back_pipe=%0d",
+                          is_active.name(), has_checks, has_coverage, front_pipe, back_pipe);
             return s;
         endfunction
 
