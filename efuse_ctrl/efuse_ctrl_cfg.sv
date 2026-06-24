@@ -25,8 +25,7 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(top_acc_sec_region_bit, UVM_ALL_ON)
     `uvm_field_int(mode_key,               UVM_ALL_ON)
     `uvm_field_int(device_key,             UVM_ALL_ON)
-    `uvm_field_int(dcu_en_boot_sel,        UVM_ALL_ON)
-    `uvm_field_int(boot_cfg_sel,           UVM_ALL_ON)
+    `uvm_field_int(boot_cfg_vld,           UVM_ALL_ON)
     `uvm_field_int(rom_patch_hit,          UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_addr,  UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_data,  UVM_ALL_ON)
@@ -58,11 +57,8 @@ class efuse_ctrl_cfg extends uvm_object;
   // 128-bit DEVICE_KEY stored at APB offsets 0x18/0x1C/0x20/0x24
   bit [127:0] device_key;
 
-  // DCU_EN boot selection value at APB offset 0x90 bit[0]
-  bit dcu_en_boot_sel = 1'b0;
-
   // Boot configuration selection value at APB offset 0xA0 bit[31]
-  bit boot_cfg_sel = 1'b0;
+  bit boot_cfg_vld = 1'b0;
 
   // ROM patch hit vector at APB offset 0x13C
   bit [31:0] rom_patch_hit;

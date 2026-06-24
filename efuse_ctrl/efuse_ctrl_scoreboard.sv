@@ -89,8 +89,7 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] MODE_KEY_START   = 32'h04;
   localparam bit [31:0] DEVICE_KEY_START = 32'h18;
 
-  // DCU_EN boot selection / boot configuration byte start addresses
-  localparam bit [31:0] DCU_EN_BOOT_SEL_START = 32'h90;
+  // Boot configuration byte start address
   localparam bit [31:0] BOOT_CFG_START        = 32'hA0;
 
   // ROM patch region byte start addresses
@@ -627,17 +626,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
 
-  // dcu_en_boot_sel at APB offset 0x90 bit[0]
-  read_word(DCU_EN_BOOT_SEL_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-  word_data[0] = cfg.dcu_en_boot_sel;
-  write_word(DCU_EN_BOOT_SEL_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(DCU_EN_BOOT_SEL_START, word_data, DUT_SRAM, FORCE_WRITE);
-  write_word(DCU_EN_BOOT_SEL_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(DCU_EN_BOOT_SEL_START, word_data, REF_SRAM, FORCE_WRITE);
-
-  // boot_cfg_sel at APB offset 0xA0 bit[31]
+  // boot_cfg_vld at APB offset 0xA0 bit[31]
   read_word(BOOT_CFG_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-  word_data[31] = cfg.boot_cfg_sel;
+  word_data[31] = cfg.boot_cfg_vld;
   write_word(BOOT_CFG_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
   write_word(BOOT_CFG_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(BOOT_CFG_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
@@ -903,11 +894,11 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     boot_strap_pin_latch_detected = 1'b0;
   end
   if (((cfg.lcs_state == LCS_CM) || (cfg.lcs_state == LCS_DM))) begin
-    if (cfg.boot_cfg_sel)
+    if (cfg.boot_cfg_vld)
       efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
   else if (cfg.lcs_state == LCS_DD) begin
-    if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_sel)
+    if (efuse_ctrl_vif.expect_dcu_en_bit[0] == 0 && cfg.boot_cfg_vld)
       efuse_ctrl_vif.expect_boot_latch_pin[7:0] = boot_cfg_bit[7:0];
   end
 
