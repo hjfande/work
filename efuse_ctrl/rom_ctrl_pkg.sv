@@ -41,8 +41,8 @@ package rom_ctrl_pkg;
         int max_addr_hold_cycles = 3;
 
         // Pipeline delays
-        int front_pipe = 0;  // additional cycles before sampling response
-        int back_pipe  = 0;  // base cycles after addr_vld before sampling response
+        int front_pipe = `EFUSE_CTRL_ROM_PATCH_FRONT_PIPE;  // additional cycles before sampling response
+        int back_pipe  = `EFUSE_CTRL_ROM_PATCH_BACK_PIPE;   // base cycles after addr_vld before sampling response
 
         function new(string name = "rom_ctrl_config");
             super.new(name);
