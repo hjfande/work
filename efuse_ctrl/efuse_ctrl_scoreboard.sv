@@ -1315,8 +1315,8 @@ endfunction
 
 task efuse_ctrl_scoreboard::run_phase(uvm_phase phase);
   super.run_phase(phase);
-  if (efuse_ctrl_vif.dft_dc_scan_mode === 1'b1) begin
-    `uvm_info(get_type_name(), "dft_dc_scan_mode is high, skip all scoreboard checks", UVM_LOW)
+  if (efuse_ctrl_vif.dft_mode === 1'b1) begin
+    `uvm_info(get_type_name(), "dft_mode is high, skip all scoreboard checks", UVM_LOW)
     return;
   end
   fork
