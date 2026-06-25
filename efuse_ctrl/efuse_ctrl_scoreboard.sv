@@ -1961,8 +1961,10 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
     end
 
     // Detect software load done: reg_model.efuse_done_status.sw_load == 1
-    // Only trigger if efuse_sw_load.cfg W1T has been detected first.
+    // Only trigger if efuse_sw_load.cfg W1T has been detected first and the
+    // current transaction is accessing efuse_done_status.
     if (software_load_started &&
+        tr.address == reg_model.efuse_done_status.get_offset() &&
         reg_model.efuse_done_status.sw_load.get() == 1'b1) begin
       `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status.sw_load=1)", UVM_MEDIUM)
       software_load_started = 1'b0;
