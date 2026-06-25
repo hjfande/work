@@ -1026,29 +1026,20 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     bit expect_pslverr;
     bit wr_en;
     bit [3:0] pstrb;
-    bit [31:0] new_one_raw;
     bit [31:0] tr_data_strbed;
-    bit [31:0] tr_data_strbed_raw;
-    bit [31:0] mem_data_raw;
-    bit [31:0] expected_data_raw;
 
     read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
-    mem_data_raw = wr_lfsr_translate(logic_addr, mem_data);
 
     // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data;
     // non-strobed bytes keep the existing fuse value.
     pstrb = tr.pstrb;
     tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
-    tr_data_strbed_raw = wr_lfsr_translate(logic_addr, tr_data_strbed);
-    expected_data_raw = mem_data_raw|tr_data_strbed_raw;
-    expected_data = rd_lfsr_translate(logic_addr, expected_data_raw);
-
-    new_one_raw = expected_data_raw & ~mem_data_raw; // new bits that will be written to fuse
-    expect_pslverr = 1'b0;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
     get_shadow_sram_acc_bit(shadow_sram_acc);
     wr_en = reg_model.efuse_shadow_sram.wr_en.get();
+
+    expect_pslverr = 1'b0;
 
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
       bit [31:0] sram_expected_data;
@@ -1059,7 +1050,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
       // Shadow-SRAM-only write: fuse data remains unchanged, SRAM is updated.
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
-      sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}}) | tr_data_strbed;
+      sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}) | tr_data_strbed;
 
       `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " DUT_FUSE primary unchanged"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " DUT_FUSE shadow unchanged"})
@@ -1072,17 +1063,28 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       update_vif_sva_expect_val();
     end
     else begin
+      bit [31:0] new_one_raw;
+      bit [31:0] tr_data_strbed_raw;
+      bit [31:0] mem_data_raw;
+      bit [31:0] expected_data_raw;
+
+      mem_data_raw = wr_lfsr_translate(logic_addr, mem_data);
+      tr_data_strbed_raw = wr_lfsr_translate(logic_addr, tr_data_strbed);
+      expected_data_raw = mem_data_raw|tr_data_strbed_raw;
+      expected_data = rd_lfsr_translate(logic_addr, expected_data_raw);
+
+      new_one_raw = expected_data_raw & ~mem_data_raw; // new bits that will be written to fuse
+
       // Normal fuse write: primary/shadow/decoded fuse are updated.
       `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
       `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
+
+      // Update reference fuse model for normal fuse writes.
+      write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
     end
 
     check_pslverr(tr, expect_pslverr);
-    // Only update reference fuse model for normal fuse writes, not shadow-SRAM-only writes.
-    if (!(wr_en == 1'b1 && shadow_sram_acc == 1'b0)) begin
-      write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
-    end
   end
 endtask
 
