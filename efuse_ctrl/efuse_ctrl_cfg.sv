@@ -58,8 +58,6 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // 0 = allow shadow SRAM access, 1 = prohibit
   rand bit shadow_sram_acc_bit = 1'b0;
-  // used to hold the shadow sram accessible status to delay the scoreboard shadow_sram_acc_bit updates
-  bit shadow_sram_acc_holder = 1'b0;
 
   // eFuse/SRAM initialization type when initial_done == 0
   rand initial_type_e initial_type = INITIAL_RAND;

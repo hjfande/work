@@ -165,6 +165,11 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
+  // Reconfigure scoreboard with a new cfg object (copies fields into internal cfg)
+  //==========================================================================
+  extern task reconfig(input efuse_ctrl_cfg new_cfg);
+
+  //==========================================================================
   // Apply cfg values to DUT_FUSE in reset_phase
   //   enable_sram_modify = 1: also write DUT_SRAM/REF_SRAM
   //   enable_sram_modify = 0: only write DUT_FUSE/REF_FUSE
@@ -395,9 +400,14 @@ function void efuse_ctrl_scoreboard::build_phase(uvm_phase phase);
     `uvm_fatal("build_phase", "Failed to get reg_model from config DB")
   end
 
-  if (!uvm_config_db#(efuse_ctrl_cfg)::get(this, "", "cfg", cfg)) begin
-    cfg = new("cfg");
-    `uvm_info("build_phase", "No efuse_ctrl_cfg found in config DB, using default", UVM_MEDIUM)
+  cfg = new("cfg");
+  begin
+    efuse_ctrl_cfg cfg_from_db;
+    if (!uvm_config_db#(efuse_ctrl_cfg)::get(this, "", "cfg", cfg_from_db)) begin
+      `uvm_fatal("build_phase", "Failed to get efuse_ctrl_cfg from config DB")
+    end else begin
+      cfg.copy(cfg_from_db);
+    end
   end
 
   foreach (ref_fuse_data[i]) ref_fuse_data[i] = 1'b0;
@@ -584,6 +594,20 @@ task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
     "Write fuse word planes: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b pri=0x%08x shd=0x%08x",
     addr, mem_type.name(), write_type.name(), force_normal_mode, pri_word_data, shd_word_data
   ), UVM_HIGH)
+endtask
+
+//----------------------------------------------------------------------------
+// reconfig: Copy new_cfg fields into the scoreboard's internal cfg object.
+// The internal cfg is owned by the scoreboard and is not a reference to cfg_db.
+//----------------------------------------------------------------------------
+task efuse_ctrl_scoreboard::reconfig(input efuse_ctrl_cfg new_cfg);
+  if (new_cfg == null) begin
+    `uvm_error(get_type_name(), "reconfig: new_cfg is null")
+    return;
+  end
+  cfg.copy(new_cfg);
+  `uvm_info(get_type_name(), "reconfig: scoreboard cfg updated", UVM_MEDIUM)
+  update_vif_sva_expect_val();
 endtask
 
 //----------------------------------------------------------------------------
@@ -1259,7 +1283,7 @@ task efuse_ctrl_scoreboard::is_read_disabled(bit [31:0] logic_addr, output bit d
 endtask
 
 task efuse_ctrl_scoreboard::get_shadow_sram_acc_bit(output bit val);
-  val = cfg.shadow_sram_acc_holder == 1 ? 0 : cfg.shadow_sram_acc_bit;
+  val = cfg.shadow_sram_acc_bit;
 endtask
 
 task efuse_ctrl_scoreboard::get_top_acc_sec_region_bit(output bit val);
