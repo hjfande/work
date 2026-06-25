@@ -965,10 +965,10 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
         dcu_en_dd_updated = 1'b1;
       end
 
-      dcu_en_src = {reg_model.efuse_dcu_en3.get(),
-                    reg_model.efuse_dcu_en2.get(),
-                    reg_model.efuse_dcu_en1.get(),
-                    reg_model.efuse_dcu_en0.get()};
+      dcu_en_src = {(reg_model.efuse_dcu_en3.get())[31:0],
+                    (reg_model.efuse_dcu_en2.get())[31:0],
+                    (reg_model.efuse_dcu_en1.get())[31:0],
+                    (reg_model.efuse_dcu_en0.get())[31:0]};
 
       read_word(32'h90, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
       read_word(32'h94, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
