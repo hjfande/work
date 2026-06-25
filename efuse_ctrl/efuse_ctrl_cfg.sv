@@ -66,11 +66,6 @@ class efuse_ctrl_cfg extends uvm_object;
   // Boot configuration selection value at APB offset 0xA0 bit[31]
   bit boot_cfg_vld = 1'b0;
 
-  // Addresses whose writes affect SVA expected values (relative to EFUSE_BASE_ADDR).
-  // Covers lcs_state, top_region_wr_disable, top_region_rd_disable, dcu_en_lock_bit,
-  // boot_cfg_vld, shadow_sram_acc_bit and top_acc_sec_region_bit.
-  bit [31:0] function_addr [9];
-
   // ROM patch hit vector at APB offset 0x13C
   bit [31:0] rom_patch_hit;
 
@@ -100,26 +95,6 @@ class efuse_ctrl_cfg extends uvm_object;
 
   function new(string name = "efuse_ctrl_cfg");
     super.new(name);
-    function_addr = '{
-      32'h48,  // lcs_state
-      32'h7C,  // top_region_wr_disable
-      32'h80,  // top_region_rd_disable
-      32'h90,  // dcu_en_lock_bit[0]
-      32'h94,  // dcu_en_lock_bit[1]
-      32'h98,  // dcu_en_lock_bit[2]
-      32'h9C,  // dcu_en_lock_bit[3]
-      32'hA0,  // boot_cfg_vld
-      32'hA8   // shadow_sram_acc_bit / top_acc_sec_region_bit
-    };
-  endfunction
-
-  // Check if the given eFuse macro offset is a function address whose write
-  // affects SVA expected values.
-  function bit is_function_addr(bit [31:0] addr);
-    foreach (function_addr[i]) begin
-      if (addr == function_addr[i]) return 1'b1;
-    end
-    return 1'b0;
   endfunction
 
 endclass
