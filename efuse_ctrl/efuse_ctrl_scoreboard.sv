@@ -1207,7 +1207,7 @@ task efuse_ctrl_scoreboard::is_read_disabled(bit [31:0] logic_addr, output bit d
 endtask
 
 task efuse_ctrl_scoreboard::get_shadow_sram_acc_bit(output bit val);
-  val = cfg.shadow_sram_acc_bit || cfg.shadow_sram_acc_holder;
+  val = cfg.shadow_sram_acc_holder == 1 ? 0 : cfg.shadow_sram_acc_bit;
 endtask
 
 task efuse_ctrl_scoreboard::get_top_acc_sec_region_bit(output bit val);
