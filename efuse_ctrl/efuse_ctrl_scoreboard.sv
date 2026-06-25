@@ -1171,6 +1171,8 @@ endtask
 // test_mode_good_trans_checker_and_ref_update: Good transaction check in test mode
 //   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR).
 // Only checks DUT_FUSE, no SRAM access/check.
+// SRAM read/write enable (read_from_efuse / shadow_sram_acc / wr_en) is checked
+// externally by the caller (apbs_test_mode_checker / apbp_test_mode_checker).
 // PPROT1 (secure/non-secure) support: svt_apb_transaction::NON_SECURE means non-secure access.
 // Read returns 0. For writes in non-reverse eFuse region, check the write is
 // ignored (DUT_FUSE unchanged); for reverse region, no write check.
