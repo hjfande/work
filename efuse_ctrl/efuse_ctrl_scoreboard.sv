@@ -914,7 +914,7 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
 
   // expect_boot_latch_pin calculation: latch only when triggered by auto_load
   if (boot_strap_pin_latch_detected) begin
-    efuse_ctrl_vif.expect_boot_latch_pin[BOOT_CFG_BIT_SIZE-1:0] = efuse_ctrl_vif.boot_strap_pin_d;
+    efuse_ctrl_vif.expect_boot_latch_pin = efuse_ctrl_vif.boot_strap_pin_d;
     boot_latch_pin_low = efuse_ctrl_vif.boot_strap_pin_d[BOOT_CFG_BIT_SIZE-1:0];
     boot_strap_pin_latch_detected = 1'b0;
   end
@@ -1051,15 +1051,22 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
     if (wr_en == 1'b1 && shadow_sram_acc == 1'b0) begin
+      bit [31:0] sram_expected_data;
+      bit [31:0] ref_sram_data, ref_pri_sram, ref_shd_sram;
+
+      // Pre-write REF_SRAM value is used to compute expected post-write data.
+      read_word(logic_addr, ref_sram_data, ref_pri_sram, ref_shd_sram, REF_SRAM);
+
       // Shadow-SRAM-only write: fuse data remains unchanged, SRAM is updated.
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
+      sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}}) | tr_data_strbed;
 
       `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " DUT_FUSE primary unchanged"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " DUT_FUSE shadow unchanged"})
       `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, " DUT_FUSE decoded unchanged"})
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data_sram, {reason, " DUT_SRAM"})
+      `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, " DUT_SRAM"})
 
-      write_word(logic_addr, expected_data, REF_SRAM, FORCE_WRITE);
+      write_word(logic_addr, sram_expected_data, REF_SRAM, FORCE_WRITE);
    
       // Re-calculate expected DUT outputs whenever a good write updates the SRAM reference
       update_vif_sva_expect_val();
