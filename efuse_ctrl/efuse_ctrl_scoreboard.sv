@@ -240,7 +240,8 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   // Call locations:
   //   1. reset_phase                       : called once after DUT_FUSE cfg applied
   //   2. auto_load_check / software_load_check : called once after load verify
-  //   3. good_trans_checker_and_ref_update     : called once after each good SRAM write
+  //   3. good_trans_checker_and_ref_update     : called once after each good SRAM write,
+  //                                              and after fuse writes to cfg.function_addr
   //   4. apbp_reg_checker                      : called when efuse_dcu_en or efuse_ctrl_acc_cfg is written
   //==========================================================================
   extern task update_vif_sva_expect_val();
@@ -1058,9 +1059,6 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, " DUT_SRAM"})
 
       write_word(logic_addr, sram_expected_data, REF_SRAM, FORCE_WRITE);
-   
-      // Re-calculate expected DUT outputs whenever a good write updates the SRAM reference
-      update_vif_sva_expect_val();
     end
     else begin
       bit [31:0] new_one_raw;
@@ -1082,6 +1080,11 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
       // Update reference fuse model for normal fuse writes.
       write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
+    end
+
+    // Update VIF/SVA expected values when function addresses are written.
+    if (cfg.is_function_addr(logic_addr)) begin
+      update_vif_sva_expect_val();
     end
 
     check_pslverr(tr, expect_pslverr);
