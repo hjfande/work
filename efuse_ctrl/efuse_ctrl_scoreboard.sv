@@ -1315,10 +1315,6 @@ endfunction
 
 task efuse_ctrl_scoreboard::run_phase(uvm_phase phase);
   super.run_phase(phase);
-  if (efuse_ctrl_vif.dft_mode === 1'b1) begin
-    `uvm_info(get_type_name(), "dft_mode is high, skip all scoreboard checks", UVM_LOW)
-    return;
-  end
   fork
     apbs_checker();
     apbp_checker();
@@ -1597,6 +1593,13 @@ task efuse_ctrl_scoreboard::apbs_checker();
   forever begin
     apbs_port.get(tr);
 
+    if (cfg.dft_mode === 1'b1) begin
+      `uvm_info(get_type_name(), $sformatf(
+        "[APBS] cfg.dft_mode is high, skip transaction: addr=0x%08x", tr.address
+      ), UVM_MEDIUM)
+      continue;
+    end
+
     `uvm_info(get_type_name(), $sformatf(
       "[APBS] %s addr=0x%08x data=0x%08x",
       tr.xact_type.name(), tr.address, tr.data
@@ -1778,6 +1781,13 @@ task efuse_ctrl_scoreboard::apbp_checker();
 
   forever begin
     apbp_port.get(tr);
+
+    if (cfg.dft_mode === 1'b1) begin
+      `uvm_info(get_type_name(), $sformatf(
+        "[APBP] cfg.dft_mode is high, skip transaction: addr=0x%08x", tr.address
+      ), UVM_MEDIUM)
+      continue;
+    end
 
     `uvm_info(get_type_name(), $sformatf(
       "[APBP] %s addr=0x%08x data=0x%08x",
@@ -2085,6 +2095,12 @@ task efuse_ctrl_scoreboard::auto_load_check();
     efuse_load_done_time     = $realtime;
     efuse_load_done_recorded = 1'b1;
     `uvm_info(get_type_name(), $sformatf("[LOAD] auto load done detected at time %0t", efuse_load_done_time), UVM_MEDIUM)
+
+    if (cfg.dft_mode === 1'b1) begin
+      `uvm_info(get_type_name(), "[LOAD] cfg.dft_mode is high, skip auto load verify", UVM_MEDIUM)
+      continue;
+    end
+
     // Skip auto load verify when load_timeout_en (boot_strap_pin MSB) is asserted.
     if (efuse_ctrl_vif.boot_strap_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1]) begin
       `uvm_info(get_type_name(), "[LOAD] load_timeout_en asserted, skipping auto load verify", UVM_MEDIUM)
@@ -2104,6 +2120,12 @@ task efuse_ctrl_scoreboard::software_load_check();
     `uvm_info(get_type_name(), "[LOAD] waiting for software load done (efuse_done_status[0]=1)", UVM_MEDIUM)
     @software_load_done_event;
     `uvm_info(get_type_name(), "[LOAD] software load done detected", UVM_MEDIUM)
+
+    if (cfg.dft_mode === 1'b1) begin
+      `uvm_info(get_type_name(), "[LOAD] cfg.dft_mode is high, skip software load verify", UVM_MEDIUM)
+      continue;
+    end
+
     do_load_verify("software load");
     update_vif_sva_expect_val();
   end
