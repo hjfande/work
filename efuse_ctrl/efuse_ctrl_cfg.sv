@@ -48,6 +48,8 @@ class efuse_ctrl_cfg extends uvm_object;
 
   // 0 = allow shadow SRAM access, 1 = prohibit
   rand bit shadow_sram_acc_bit = 1'b0;
+  // used to hold the shadow sram accessible status to delay the scoreboard shadow_sram_acc_bit updates
+  bit shadow_sram_acc_holder = 1'b0;
 
   // 0 = allow public master secure region access, 1 = prohibit
   rand bit top_acc_sec_region_bit = 1'b0;
