@@ -957,6 +957,11 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   if (lcs_state == LCS_DD) begin
     // In LCS_DD, expect_dcu_en_bit is allowed to update only once.
     if (!dcu_en_dd_updated) begin
+      bit [31:0] dcu_en0;
+      bit [31:0] dcu_en1;
+      bit [31:0] dcu_en2;
+      bit [31:0] dcu_en3;
+
       // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit.
       // Once software writes 1 to update, dcu_en_dd_updated is set so that this
       // block runs only once; dcu_en_src is always taken from the current
@@ -965,10 +970,11 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
         dcu_en_dd_updated = 1'b1;
       end
 
-      dcu_en_src = {(reg_model.efuse_dcu_en3.get())[31:0],
-                    (reg_model.efuse_dcu_en2.get())[31:0],
-                    (reg_model.efuse_dcu_en1.get())[31:0],
-                    (reg_model.efuse_dcu_en0.get())[31:0]};
+      dcu_en3 = reg_model.efuse_dcu_en3.get();
+      dcu_en2 = reg_model.efuse_dcu_en2.get();
+      dcu_en1 = reg_model.efuse_dcu_en1.get();
+      dcu_en0 = reg_model.efuse_dcu_en0.get();
+      dcu_en_src = {dcu_en3, dcu_en2, dcu_en1, dcu_en0};
 
       read_word(32'h90, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
       read_word(32'h94, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
@@ -2029,6 +2035,21 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
         efuse_dcu_en_written = 1'b1;
         update_vif_sva_expect_val();
       end
+    end
+
+    // Detect writes to efuse_dcu_en0~3 data registers.
+    // Re-evaluate expect_dcu_en_bit whenever the source value changes, so that
+    // the latest software-configured value is reflected before the update trigger.
+    if (tr.xact_type == svt_apb_transaction::WRITE &&
+        (tr.address == reg_model.efuse_dcu_en0.get_offset() ||
+         tr.address == reg_model.efuse_dcu_en1.get_offset() ||
+         tr.address == reg_model.efuse_dcu_en2.get_offset() ||
+         tr.address == reg_model.efuse_dcu_en3.get_offset())) begin
+      `uvm_info(get_type_name(), $sformatf(
+        "[APBP_REG] efuse_dcu_en0~3 register write detected at addr=0x%08x data=0x%08x",
+        tr.address, tr.data
+      ), UVM_MEDIUM)
+      update_vif_sva_expect_val();
     end
 
     // Detect writes to efuse_ctrl_acc_cfg.
