@@ -958,23 +958,30 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     // In LCS_DD, expect_dcu_en_bit is allowed to update only once.
     if (!dcu_en_dd_updated) begin
       // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit.
-      // Once software writes 1 to update, efuse_dcu_en_written is set and dcu_en_src
-      // is taken from the software-configured value stored in efuse_dcu_en0~3.
+      // Once software writes 1 to update, dcu_en_dd_updated is set so that this
+      // block runs only once; dcu_en_src is always taken from the current
+      // software-configured value stored in efuse_dcu_en0~3.
       if (efuse_dcu_en_written) begin
-        dcu_en_src = {reg_model.efuse_dcu_en3.get(),
-                      reg_model.efuse_dcu_en2.get(),
-                      reg_model.efuse_dcu_en1.get(),
-                      reg_model.efuse_dcu_en0.get()};
         dcu_en_dd_updated = 1'b1;
-      end else begin
-        dcu_en_src = '0;
       end
+
+      dcu_en_src = {reg_model.efuse_dcu_en3.get(),
+                    reg_model.efuse_dcu_en2.get(),
+                    reg_model.efuse_dcu_en1.get(),
+                    reg_model.efuse_dcu_en0.get()};
+
       read_word(32'h90, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
       read_word(32'h94, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
       read_word(32'h98, dcu_en_lock_w2, pri_tmp, shd_tmp, DUT_SRAM);
       read_word(32'h9C, dcu_en_lock_w3, pri_tmp, shd_tmp, DUT_SRAM);
       dcu_en_lock = {dcu_en_lock_w3, dcu_en_lock_w2, dcu_en_lock_w1, dcu_en_lock_w0};
+
       efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
+
+      `uvm_info(get_type_name(), $sformatf(
+        "update_vif_sva_expect_val: LCS_DD dcu_en_src=0x%032x dcu_en_lock=0x%032x expect_dcu_en=0x%032x",
+        dcu_en_src, dcu_en_lock, efuse_ctrl_vif.expect_dcu_en_bit
+      ), UVM_MEDIUM)
     end
   end
   else if (lcs_state == LCS_CM) begin
