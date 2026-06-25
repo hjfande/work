@@ -12,6 +12,14 @@ typedef enum bit [3:0] {
 } lcs_state_e;
 
 //----------------------------------------------------------------------------
+// eFuse initialization type enum
+//----------------------------------------------------------------------------
+typedef enum bit [1:0] {
+  INITIAL_ALL_ZERO = 2'b00,
+  INITIAL_RAND     = 2'b01
+} initial_type_e;
+
+//----------------------------------------------------------------------------
 // eFuse Controller Configuration Object
 //----------------------------------------------------------------------------
 class efuse_ctrl_cfg extends uvm_object;
@@ -23,6 +31,8 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(top_region_rd_disable,  UVM_ALL_ON)
     `uvm_field_int(shadow_sram_acc_bit,    UVM_ALL_ON)
     `uvm_field_int(top_acc_sec_region_bit, UVM_ALL_ON)
+    `uvm_field_enum(initial_type_e, initial_type, UVM_ALL_ON)
+    `uvm_field_int(initial_done,           UVM_ALL_ON)
     `uvm_field_int(mode_key_no_lfsr,        UVM_ALL_ON)
     `uvm_field_int(device_key_no_lfsr,      UVM_ALL_ON)
     `uvm_field_sarray_int(dcu_en_lock_bit,  UVM_ALL_ON)
@@ -50,6 +60,11 @@ class efuse_ctrl_cfg extends uvm_object;
   rand bit shadow_sram_acc_bit = 1'b0;
   // used to hold the shadow sram accessible status to delay the scoreboard shadow_sram_acc_bit updates
   bit shadow_sram_acc_holder = 1'b0;
+
+  // eFuse/SRAM initialization type when initial_done == 0
+  rand initial_type_e initial_type = INITIAL_RAND;
+  // Set to 1 after apply_cfg_to_fuse_sram has initialized the memory array
+  bit initial_done = 1'b0;
 
   // 0 = allow public master secure region access, 1 = prohibit
   rand bit top_acc_sec_region_bit = 1'b0;
@@ -85,6 +100,11 @@ class efuse_ctrl_cfg extends uvm_object;
   // LCS_STATE constraint: only CM/DM/DD/DR are valid
   constraint lcs_state_c {
     lcs_state inside {LCS_CM, LCS_DM, LCS_DD, LCS_DR};
+  }
+
+  // initial_type constraint: only ALL_ZERO/RAND are valid
+  constraint initial_type_c {
+    initial_type inside {INITIAL_ALL_ZERO, INITIAL_RAND};
   }
 
   bit dft_dc_scan_mode = 1'b0;

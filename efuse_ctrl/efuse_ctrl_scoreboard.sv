@@ -166,8 +166,10 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
 
   //==========================================================================
   // Apply cfg values to DUT_FUSE in reset_phase
+  //   enable_sram_modify = 1: also write DUT_SRAM/REF_SRAM
+  //   enable_sram_modify = 0: only write DUT_FUSE/REF_FUSE
   //==========================================================================
-  extern task apply_cfg_to_fuse_sram();
+  extern task apply_cfg_to_fuse_sram(input bit enable_sram_modify = 1'b0);
 
   //==========================================================================
   // Backdoor access wrappers: FUSE vs SRAM
@@ -585,14 +587,42 @@ task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
 endtask
 
 //----------------------------------------------------------------------------
-// apply_cfg_to_fuse_sram: Update DUT_FUSE/DUT_SRAM/REF_FUSE/REF_SRAM with cfg-controlled fields
+// apply_cfg_to_fuse_sram: Update DUT_FUSE/REF_FUSE with cfg-controlled fields.
+// Also updates DUT_SRAM/REF_SRAM when enable_sram_modify == 1.
 //----------------------------------------------------------------------------
-task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
+task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify = 1'b0);
   bit [31:0] word_data;
   bit [31:0] pri_data;
   bit [31:0] shd_data;
 
   backdoor_cfg_efuse = 1'b1;
+
+  // Initialize the entire eFuse and SRAM array once before applying cfg fields.
+  if (!cfg.initial_done) begin
+    for (bit [31:0] init_addr = 0; init_addr < EFUSE_SIZE; init_addr += 4) begin
+      bit [31:0] init_word;
+      bit        is_key_addr;
+      case (cfg.initial_type)
+        INITIAL_ALL_ZERO: init_word = 32'h0;
+        INITIAL_RAND:     init_word = $urandom();
+        default:          init_word = 32'h0;
+      endcase
+      is_key_addr = (init_addr >= MODE_KEY_START && init_addr < MODE_KEY_START + 16) ||
+                    (init_addr >= DEVICE_KEY_START && init_addr < DEVICE_KEY_START + 16);
+      if (is_key_addr) begin
+        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, REF_FUSE, FORCE_WRITE, 1'b1);
+      end else begin
+        write_word(init_addr, init_word, DUT_FUSE, FORCE_WRITE, 1'b1);
+        write_word(init_addr, init_word, REF_FUSE, FORCE_WRITE, 1'b1);
+      end
+      if (enable_sram_modify) begin
+        write_word(init_addr, init_word, DUT_SRAM, FORCE_WRITE);
+        write_word(init_addr, init_word, REF_SRAM, FORCE_WRITE);
+      end
+    end
+    cfg.initial_done = 1'b1;
+  end
 
   // MODE_KEY_NO_LFSR: 128 bits at APB offsets 0x04, 0x08, 0x0C, 0x10
   // Written raw to FUSE (no LFSR) and normally to SRAM.
@@ -600,9 +630,11 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
     bit [31:0] key_word = cfg.mode_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = MODE_KEY_START + i*4;
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
-    write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+    if (enable_sram_modify) begin
+      write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
+      write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+    end
   end
 
   // DEVICE_KEY_NO_LFSR: 128 bits at APB offsets 0x18, 0x1C, 0x20, 0x24
@@ -611,52 +643,64 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
     bit [31:0] key_word = cfg.device_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = DEVICE_KEY_START + i*4;
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
-    write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+    if (enable_sram_modify) begin
+      write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
+      write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
+    end
   end
 
   // LCS_STATE: low 4 bits at APB offset 0x48
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[3:0] = 4'(cfg.lcs_state);
   write_word(LCS_STATE_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(LCS_STATE_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(LCS_STATE_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(LCS_STATE_START, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(LCS_STATE_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(LCS_STATE_START, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // Write access disable: low 8 bits at APB offset 0x7C
   read_word(WR_RD_ACC_DIS_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_wr_disable;
   write_word(WR_RD_ACC_DIS_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(WR_RD_ACC_DIS_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(WR_RD_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(WR_RD_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // Read access disable: low 8 bits at APB offset 0x80
   read_word(WR_RD_ACC_DIS_START + 4, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_rd_disable;
   write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // dcu_en_lock_bit at APB offsets 0x90, 0x94, 0x98, 0x9C
   for (int i = 0; i < 4; i++) begin
     bit [31:0] lock_addr = DCU_EN_LOCK_BIT_START + i*4;
     bit [31:0] lock_word = cfg.dcu_en_lock_bit[i];
     write_word(lock_addr, lock_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_word(lock_addr, lock_word, DUT_SRAM, FORCE_WRITE);
     write_word(lock_addr, lock_word, REF_FUSE, FORCE_WRITE, 1'b1);
-    write_word(lock_addr, lock_word, REF_SRAM, FORCE_WRITE);
+    if (enable_sram_modify) begin
+      write_word(lock_addr, lock_word, DUT_SRAM, FORCE_WRITE);
+      write_word(lock_addr, lock_word, REF_SRAM, FORCE_WRITE);
+    end
   end
 
   // boot_cfg_vld at APB offset 0xA0 bit[31]
   read_word(BOOT_CFG_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[31] = cfg.boot_cfg_vld;
   write_word(BOOT_CFG_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(BOOT_CFG_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(BOOT_CFG_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(BOOT_CFG_START, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(BOOT_CFG_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(BOOT_CFG_START, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // shadow_sram_acc_bit at APB offset 0xA8 bit[10]
   // top_acc_sec_region_bit at APB offset 0xA8 bit[9]
@@ -664,26 +708,32 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
   word_data[10] = cfg.shadow_sram_acc_bit;
   word_data[9]  = cfg.top_acc_sec_region_bit;
   write_word(32'hA8, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(32'hA8, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(32'hA8, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(32'hA8, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(32'hA8, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(32'hA8, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // ROM patch hit vector at APB offset 0x13C
   read_word(ROM_PATCH_HIT_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data = cfg.rom_patch_hit;
   write_word(ROM_PATCH_HIT_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(ROM_PATCH_HIT_START, word_data, DUT_SRAM, FORCE_WRITE);
   write_word(ROM_PATCH_HIT_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
-  write_word(ROM_PATCH_HIT_START, word_data, REF_SRAM, FORCE_WRITE);
+  if (enable_sram_modify) begin
+    write_word(ROM_PATCH_HIT_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(ROM_PATCH_HIT_START, word_data, REF_SRAM, FORCE_WRITE);
+  end
 
   // ROM patch addresses (16-bit x 32 entries, packed 2 per word) at APB offset 0x140
   for (int i = 0; i < ROM_PATCH_NUM/2; i++) begin
     bit [31:0] addr_offset = ROM_PATCH_ADDR_START + i*4;
     bit [31:0] patch_addr_word = {cfg.rom_patch_addr[2*i+1], cfg.rom_patch_addr[2*i]};
     write_word(addr_offset, patch_addr_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_word(addr_offset, patch_addr_word, DUT_SRAM, FORCE_WRITE);
     write_word(addr_offset, patch_addr_word, REF_FUSE, FORCE_WRITE, 1'b1);
-    write_word(addr_offset, patch_addr_word, REF_SRAM, FORCE_WRITE);
+    if (enable_sram_modify) begin
+      write_word(addr_offset, patch_addr_word, DUT_SRAM, FORCE_WRITE);
+      write_word(addr_offset, patch_addr_word, REF_SRAM, FORCE_WRITE);
+    end
   end
 
   // ROM patch data (32-bit x 32 entries) at APB offset 0x180
@@ -691,9 +741,11 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram();
     bit [31:0] addr_offset = ROM_PATCH_DATA_START + i*4;
     bit [31:0] patch_data_word = cfg.rom_patch_data[i];
     write_word(addr_offset, patch_data_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_word(addr_offset, patch_data_word, DUT_SRAM, FORCE_WRITE);
     write_word(addr_offset, patch_data_word, REF_FUSE, FORCE_WRITE, 1'b1);
-    write_word(addr_offset, patch_data_word, REF_SRAM, FORCE_WRITE);
+    if (enable_sram_modify) begin
+      write_word(addr_offset, patch_data_word, DUT_SRAM, FORCE_WRITE);
+      write_word(addr_offset, patch_data_word, REF_SRAM, FORCE_WRITE);
+    end
   end
 
   backdoor_cfg_efuse = 1'b0;
