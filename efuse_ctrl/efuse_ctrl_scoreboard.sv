@@ -888,6 +888,9 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     `uvm_fatal(get_type_name(), "update_vif_sva_expect_val: efuse_ctrl_vif is null")
   end
 
+  // Wait for register predictor to update reg_model in the same time step.
+  #0;
+
   // Drive margin_read_mode to vif so backdoor reads use the current mode
   efuse_ctrl_vif.margin_read_mode = reg_model.efuse_ctrl_acc_cfg.margin_read_mode.get();
 
@@ -1960,15 +1963,20 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
       end
     end
 
-    // Detect software load done: reg_model.efuse_done_status.sw_load == 1
+    // Detect software load done: efuse_done_status.sw_load == 1
     // Only trigger if efuse_sw_load.cfg W1T has been detected first and the
-    // current transaction is accessing efuse_done_status.
+    // current transaction is a read of efuse_done_status. Use tr.data directly
+    // because reg_model update may be delayed.
     if (software_load_started &&
-        tr.address == reg_model.efuse_done_status.get_offset() &&
-        reg_model.efuse_done_status.sw_load.get() == 1'b1) begin
-      `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status.sw_load=1)", UVM_MEDIUM)
-      software_load_started = 1'b0;
-      -> software_load_done_event;
+        tr.xact_type == svt_apb_transaction::READ &&
+        tr.address == reg_model.efuse_done_status.get_offset()) begin
+      bit sw_load_bit;
+      sw_load_bit = (tr.data >> reg_model.efuse_done_status.sw_load.get_lsb_pos()) & 1'b1;
+      if (sw_load_bit) begin
+        `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status.sw_load=1)", UVM_MEDIUM)
+        software_load_started = 1'b0;
+        -> software_load_done_event;
+      end
     end
 
     // Detect writes to efuse_dcu_en register.
