@@ -1960,6 +1960,7 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
           tr.address, tr.data
         ), UVM_MEDIUM)
         software_load_started = 1'b1;
+        efuse_ctrl_vif.soft_load_done = 1'b0;
       end
     end
 
@@ -1975,6 +1976,7 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
       if (sw_load_bit) begin
         `uvm_info(get_type_name(), "[LOAD] software load done detected (efuse_done_status.sw_load=1)", UVM_MEDIUM)
         software_load_started = 1'b0;
+        efuse_ctrl_vif.soft_load_done = 1'b1;
         -> software_load_done_event;
       end
     end
