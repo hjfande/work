@@ -42,7 +42,7 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_sarray_int(rom_patch_data,  UVM_ALL_ON)
     `uvm_field_int(pslverr_check_enable,   UVM_ALL_ON)
     `uvm_field_int(check_trans_before_load_done_by_single, UVM_ALL_ON)
-    `uvm_field_int(dft_dc_scan_mode,       UVM_ALL_ON)
+    `uvm_field_int(dft_mode,               UVM_ALL_ON)
     `uvm_field_int(timeout_load_en,        UVM_ALL_ON)
   `uvm_object_utils_end
 
@@ -105,7 +105,7 @@ class efuse_ctrl_cfg extends uvm_object;
     initial_type inside {INITIAL_ALL_ZERO, INITIAL_RAND};
   }
 
-  bit dft_dc_scan_mode = 1'b0;
+  bit dft_mode = 1'b0;
   bit timeout_load_en = 1'b0;
 
   parameter BOOT_DBG_PIN_SEL_BIT = 0;
