@@ -1305,30 +1305,31 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     bit expect_pslverr;
     bit [3:0] pstrb;
     bit [31:0] tr_data_strbed;
+    string     mode_str;
+
+    read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
+
+    // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data.
+    // In test mode, APB write data is applied directly to fuse without LFSR encoding.
+    pstrb = tr.pstrb;
+    tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
 
     if (test_row_col[1] === 1'b0) begin
-      // Test row mode: APB write data is applied directly to fuse without LFSR encoding.
-      read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
-
-      // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data.
-      pstrb = tr.pstrb;
-      tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
+      // Test row mode: the full strobed word is OR-ed into the fuse.
       expected_data = mem_data | tr_data_strbed;
-
-      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test row mode"})
+      mode_str      = " DUT_FUSE test row mode";
     end
     else begin
-      // Test column mode: only a single column bit is written and it can only be
-      // burned to 1, so the expected value is always 1. read_word already
-      // collapses the valid column bit to bit[0].
-      expected_data = 32'h1;
-
-      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test column mode"})
+      // Test column mode: only a single column bit is written, so any non-zero
+      // strobed data burns bit[0]. read_word collapses the valid column bit
+      // (1st->bit[0], 2nd->bit[31]) to bit[0] for both ref and dut reads.
+      expected_data = mem_data | (|tr_data_strbed);
+      mode_str      = " DUT_FUSE test column mode";
     end
+
+    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+
+    `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, mode_str})
 
     expect_pslverr = 1'b0;
     check_pslverr(tr, expect_pslverr);
