@@ -1022,7 +1022,7 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
       dcu_en_lock = {dcu_en_lock_w3, dcu_en_lock_w2, dcu_en_lock_w1, dcu_en_lock_w0};
 
       efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
-
+      efuse_ctrl_vif.dcu_en_dd_updated = dcu_en_dd_updated;
       `uvm_info(get_type_name(), $sformatf(
         "update_vif_sva_expect_val: LCS_DD dcu_en_src=0x%032x dcu_en_lock=0x%032x expect_dcu_en=0x%032x",
         dcu_en_src, dcu_en_lock, efuse_ctrl_vif.expect_dcu_en_bit
