@@ -270,6 +270,15 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
+  // Utility: Collapse the valid test-column bit of a word to bit[0]
+  //   In test column mode (efuse_test_row_col[1]==1) only one column bit is
+  //   valid: the 1st column (efuse_test_row_col[0]==0) at bit[0], the 2nd
+  //   column (==1) at bit[31]. Returns the word unchanged when not in column
+  //   mode, otherwise {31'b0, selected_bit}.
+  //==========================================================================
+  extern function bit [31:0] collapse_test_col_bit(input bit [31:0] data);
+
+  //==========================================================================
   // Utility: Check good transactions and update reference model
   //   logic_addr is the pre-computed eFuse macro offset (relative to EFUSE_BASE_ADDR)
   //   to use for all read_word/write_word calls.
@@ -477,7 +486,6 @@ task efuse_ctrl_scoreboard::read_word(
   logic [fuse_addr_size - 1 : 0] shd_A;
   logic [fuse_addr_size - 1 : 0] test_mode_A;
   logic                          test_mode;
-  logic [1:0]                    test_row_col;
 
   // SRAM is word-addressable, has no primary/shadow split, and bypasses LFSR
   if (mem_type == DUT_SRAM || mem_type == REF_SRAM) begin
@@ -495,8 +503,7 @@ task efuse_ctrl_scoreboard::read_word(
   end
 
   // Determine effective test mode (force_normal_mode overrides reg_model setting).
-  test_mode    = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
-  test_row_col = reg_model.efuse_ctrl_acc_cfg.efuse_test_row_col.get();
+  test_mode = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
 
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
@@ -509,14 +516,10 @@ task efuse_ctrl_scoreboard::read_word(
     word_data = wr_lfsr_translate(addr, pri_data | shd_data);
   end else begin
     // Test mode: read test row/column directly without LFSR decode.
+    // In test column mode, collapse the valid column bit to bit[0] so callers
+    // get a clean 1-bit result.
     ReadFuse(test_mode_A, word_data, mem_type, force_normal_mode);
-    // In test column mode (test_row_col[1]==1) only a single column bit is valid:
-    // the 1st column (test_row_col[0]==0) lands on bit[0] and the 2nd column
-    // (test_row_col[0]==1) on bit[31]. Collapse it to bit[0] so callers get a
-    // clean 1-bit result.
-    if (test_row_col[1] === 1'b1) begin
-      word_data = {31'b0, (test_row_col[0] === 1'b1) ? word_data[31] : word_data[0]};
-    end
+    word_data = collapse_test_col_bit(word_data);
     pri_data = word_data;
     shd_data = word_data;
   end
@@ -926,6 +929,25 @@ function bit [31:0] efuse_ctrl_scoreboard::wr_lfsr_translate(
 endfunction
 
 //----------------------------------------------------------------------------
+// collapse_test_col_bit: Collapse the valid test-column bit of a word to bit[0]
+//   Returns data unchanged when not in test column mode; otherwise selects the
+//   1st column bit (bit[0]) or 2nd column bit (bit[31]) into bit[0].
+//----------------------------------------------------------------------------
+function bit [31:0] efuse_ctrl_scoreboard::collapse_test_col_bit(input bit [31:0] data);
+  logic [1:0] test_row_col;
+
+  if (reg_model == null) begin
+    `uvm_fatal(get_type_name(), "collapse_test_col_bit: reg_model is null")
+  end
+  test_row_col = reg_model.efuse_ctrl_acc_cfg.efuse_test_row_col.get();
+
+  if (test_row_col[1] !== 1'b1) begin
+    return data;
+  end
+  return {31'b0, (test_row_col[0] === 1'b1) ? data[31] : data[0]};
+endfunction
+
+//----------------------------------------------------------------------------
 // update_vif_sva_expect_val: Update VIF/SVA expected values from eFuse data
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
@@ -1293,8 +1315,15 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
   end
 
   if (tr.xact_type == svt_apb_transaction::READ) begin
+    bit [31:0] tr_data_cmp;
+
+    // read_word collapses the valid test-column bit to bit[0]. The APB read data
+    // still carries it at its native position, so collapse tr.data the same way
+    // before comparing against the backdoor read.
+    tr_data_cmp = collapse_test_col_bit(tr.data);
+
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-    `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, {reason, " read backdoor"})
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr_data_cmp, {reason, " read backdoor"})
 
     read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
     `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, " ref-dut consistency"})
