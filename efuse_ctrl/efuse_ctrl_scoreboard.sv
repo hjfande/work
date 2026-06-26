@@ -477,6 +477,7 @@ task efuse_ctrl_scoreboard::read_word(
   logic [fuse_addr_size - 1 : 0] shd_A;
   logic [fuse_addr_size - 1 : 0] test_mode_A;
   logic                          test_mode;
+  logic [1:0]                    test_row_col;
 
   // SRAM is word-addressable, has no primary/shadow split, and bypasses LFSR
   if (mem_type == DUT_SRAM || mem_type == REF_SRAM) begin
@@ -494,7 +495,8 @@ task efuse_ctrl_scoreboard::read_word(
   end
 
   // Determine effective test mode (force_normal_mode overrides reg_model setting).
-  test_mode = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
+  test_mode    = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
+  test_row_col = reg_model.efuse_ctrl_acc_cfg.efuse_test_row_col.get();
 
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
@@ -508,6 +510,13 @@ task efuse_ctrl_scoreboard::read_word(
   end else begin
     // Test mode: read test row/column directly without LFSR decode.
     ReadFuse(test_mode_A, word_data, mem_type, force_normal_mode);
+    // In test column mode (test_row_col[1]==1) only a single column bit is valid:
+    // the 1st column (test_row_col[0]==0) lands on bit[0] and the 2nd column
+    // (test_row_col[0]==1) on bit[31]. Collapse it to bit[0] so callers get a
+    // clean 1-bit result.
+    if (test_row_col[1] === 1'b1) begin
+      word_data = {31'b0, (test_row_col[0] === 1'b1) ? word_data[31] : word_data[0]};
+    end
     pri_data = word_data;
     shd_data = word_data;
   end
@@ -535,6 +544,7 @@ task efuse_ctrl_scoreboard::write_word(
   logic [fuse_addr_size - 1 : 0] bit_A;
   logic                          bit_data;
   logic                          test_mode;
+  logic [1:0]                    test_row_col;
   bit [31:0]                     efuse_word_data;
 
   // SRAM is word-addressable, has no primary/shadow split, and bypasses LFSR
@@ -552,6 +562,7 @@ task efuse_ctrl_scoreboard::write_word(
 
   // Determine effective test mode (force_normal_mode overrides reg_model setting).
   test_mode = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
+  test_row_col = reg_model.efuse_ctrl_acc_cfg.efuse_test_row_col.get();
 
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
@@ -585,6 +596,11 @@ task efuse_ctrl_scoreboard::write_word(
       // Test mode: write test row/column directly.
       bit_A = {i[out_addr_size-1:0], test_mode_A[read_addr_size-1:0]};
       WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+
+      // Test column mode (test_row_col[1]==1) writes only a single column bit.
+      if (test_row_col[1] === 1'b1) begin
+        break;
+      end
     end
   end
 
@@ -1247,12 +1263,17 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
   bit [31:0] ref_data;
   bit [31:0] ref_pri;
   bit [31:0] ref_shd;
+  logic [1:0] test_row_col;
 
   logic_addr[1:0] = 2'b00; // word-align the address for backdoor access
 
   if (reg_model == null) begin
     `uvm_fatal(get_type_name(), "test_mode_good_trans_checker_and_ref_update: reg_model is null")
   end
+
+  // efuse_test_row_col[1]: 0 = test row mode, 1 = test column mode
+  // efuse_test_row_col[0]: selects the 1st (0) or 2nd (1) test row/column
+  test_row_col = reg_model.efuse_ctrl_acc_cfg.efuse_test_row_col.get();
 
   // Non-secure access: read returns 0, write is ignored.
   if (tr.pprot1 === svt_apb_transaction::NON_SECURE) begin
@@ -1285,19 +1306,31 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     bit [3:0] pstrb;
     bit [31:0] tr_data_strbed;
 
-    read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
+    if (test_row_col[1] === 1'b0) begin
+      // Test row mode: APB write data is applied directly to fuse without LFSR encoding.
+      read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
-    // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data.
-    pstrb = tr.pstrb;
-    tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
-    // In test mode, APB write data is applied directly to fuse without LFSR encoding.
-    expected_data = mem_data | tr_data_strbed;
+      // Apply APB byte strobe (pstrb): only strobed bytes are OR-ed with write data.
+      pstrb = tr.pstrb;
+      tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
+      expected_data = mem_data | tr_data_strbed;
+
+      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test row mode"})
+    end
+    else begin
+      // Test column mode: only a single column bit is written and it can only be
+      // burned to 1, so the expected value is always 1. read_word already
+      // collapses the valid column bit to bit[0].
+      expected_data = 32'h1;
+
+      read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
+
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test column mode"})
+    end
+
     expect_pslverr = 1'b0;
-
-    read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-
-    `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test_mode"})
-
     check_pslverr(tr, expect_pslverr);
     write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
   end
