@@ -1686,6 +1686,7 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
   bit wr_en;
   bit illegal_sram_access;
   bit addr_in_range;
+  bit reserved_addr;
   bit [31:0] sram_data;
   bit [31:0] ref_sram_data;
   bit [31:0] pri_data;
@@ -1697,17 +1698,28 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
 
   // Secure master test mode address range: [0, 0x200)
   addr_in_range = (tr.address < 32'h200);
+  // Reserved address: beyond the valid eFuse macro range
+  reserved_addr = (tr.address >= EFUSE_SIZE);
+
+  `uvm_info(get_type_name(), $sformatf(
+    "[APBS_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
+    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, addr_in_range, reserved_addr
+  ), UVM_HIGH)
+
+  // Reserved address access: read returns 0; write cannot be checked for ignored behavior.
+  if (reserved_addr) begin
+    check_pslverr(tr, 1'b0);
+    if (tr.xact_type == svt_apb_transaction::READ) begin
+      check_read_data(tr, 32'h0, "test mode reserved address read returns 0");
+    end
+    return;
+  end
 
   // In test mode:
   //   - SRAM read is illegal when read_from_efuse == 0 -> read returns 0 (checked regardless of address)
   //   - SRAM write is illegal when shadow_sram_acc == 0 && wr_en == 1, but only checked within range
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
-
-  `uvm_info(get_type_name(), $sformatf(
-    "[APBS_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b illegal_sram=%0b",
-    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, illegal_sram_access
-  ), UVM_HIGH)
 
   // Illegal SRAM access check and good transaction check are not mutually exclusive;
   // both must be executed.
@@ -1859,6 +1871,7 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
   bit wr_en;
   bit illegal_sram_access;
   bit addr_in_range;
+  bit reserved_addr;
   bit [31:0] sram_data;
   bit [31:0] ref_sram_data;
   bit [31:0] pri_data;
@@ -1870,17 +1883,28 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
 
   // Public master test mode address range: [EFUSE_BASE_ADDR, EFUSE_BASE_ADDR + 0x200)
   addr_in_range = (tr.address >= EFUSE_BASE_ADDR) && (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE);
+  // Reserved address: beyond the valid eFuse macro range (reverse / reserved region)
+  reserved_addr = (tr.address >= EFUSE_BASE_ADDR + EFUSE_SIZE);
+
+  `uvm_info(get_type_name(), $sformatf(
+    "[APBP_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
+    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, addr_in_range, reserved_addr
+  ), UVM_HIGH)
+
+  // Reserved address access: read returns 0; write cannot be checked for ignored behavior.
+  if (reserved_addr) begin
+    check_pslverr(tr, 1'b0);
+    if (tr.xact_type == svt_apb_transaction::READ) begin
+      check_read_data(tr, 32'h0, "test mode reserved address read returns 0");
+    end
+    return;
+  end
 
   // In test mode:
   //   - SRAM read is illegal when read_from_efuse == 0 -> read returns 0 (checked regardless of address)
   //   - SRAM write is illegal when shadow_sram_acc == 0 && wr_en == 1, but only checked within range
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
-
-  `uvm_info(get_type_name(), $sformatf(
-    "[APBP_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b illegal_sram=%0b",
-    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, illegal_sram_access
-  ), UVM_HIGH)
 
   // Illegal SRAM access check and good transaction check are not mutually exclusive;
   // both must be executed.
