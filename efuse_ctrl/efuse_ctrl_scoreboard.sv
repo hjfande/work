@@ -83,6 +83,13 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] SECURE_REGION_END = 32'h7C;
   localparam bit [31:0] EFUSE_SIZE        = 32'h200;
 
+  // Test-mode accessible range end. In test mode the test row/column space
+  // extends beyond the normal 0x200 logical range: addresses in [0x200, 0x300)
+  // are still accessible and only addresses >= 0x300 are treated as reserved.
+  // Note: the illegal_sram_access write-invalid branch still uses EFUSE_SIZE
+  // (0x200) as its in-range boundary.
+  localparam bit [31:0] TEST_MODE_ACC_SIZE = 32'h300;
+
   // WR_RD_ACC_DIS region byte start address
   localparam bit [31:0] WR_RD_ACC_DIS_START = 32'h7C;
 
@@ -1696,10 +1703,10 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
   get_shadow_sram_acc_bit(shadow_sram_acc);
   wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
-  // Secure master test mode address range: [0, 0x200)
-  addr_in_range = (tr.address < 32'h200);
-  // Reserved address: beyond the valid eFuse macro range
-  reserved_addr = (tr.address >= EFUSE_SIZE);
+  // Secure master test mode address range: [0, 0x200) for SRAM write-invalid check
+  addr_in_range = (tr.address < EFUSE_SIZE);
+  // Reserved address: beyond the test-mode accessible range (>= 0x300)
+  reserved_addr = (tr.address >= TEST_MODE_ACC_SIZE);
 
   `uvm_info(get_type_name(), $sformatf(
     "[APBS_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
@@ -1881,10 +1888,10 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
   get_shadow_sram_acc_bit(shadow_sram_acc);
   wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
-  // Public master test mode address range: [EFUSE_BASE_ADDR, EFUSE_BASE_ADDR + 0x200)
+  // Public master test mode address range: [EFUSE_BASE_ADDR, EFUSE_BASE_ADDR + 0x200) for SRAM write-invalid check
   addr_in_range = (tr.address >= EFUSE_BASE_ADDR) && (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE);
-  // Reserved address: beyond the valid eFuse macro range (reverse / reserved region)
-  reserved_addr = (tr.address >= EFUSE_BASE_ADDR + EFUSE_SIZE);
+  // Reserved address: beyond the test-mode accessible range (>= EFUSE_BASE_ADDR + 0x300)
+  reserved_addr = (tr.address >= EFUSE_BASE_ADDR + TEST_MODE_ACC_SIZE);
 
   `uvm_info(get_type_name(), $sformatf(
     "[APBP_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
