@@ -83,13 +83,6 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] SECURE_REGION_END = 32'h7C;
   localparam bit [31:0] EFUSE_SIZE        = 32'h200;
 
-  // Test-mode accessible range end. In test mode the test row/column space
-  // extends beyond the normal 0x200 logical range: addresses in [0x200, 0x300)
-  // are still accessible and only addresses >= 0x300 are treated as reserved.
-  // Note: the illegal_sram_access write-invalid branch still uses EFUSE_SIZE
-  // (0x200) as its in-range boundary.
-  localparam bit [31:0] TEST_MODE_ACC_SIZE = 32'h300;
-
   // WR_RD_ACC_DIS region byte start address
   localparam bit [31:0] WR_RD_ACC_DIS_START = 32'h7C;
 
@@ -1705,8 +1698,9 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
 
   // Secure master test mode address range: [0, 0x200) for SRAM write-invalid check
   addr_in_range = (tr.address < EFUSE_SIZE);
-  // Reserved address: beyond the test-mode accessible range (>= 0x300)
-  reserved_addr = (tr.address >= TEST_MODE_ACC_SIZE);
+  // Reserved/reverse address by bit decode: a non-reverse address requires
+  // address[31:10] == 0, so any bit at or above bit[10] being set marks it reserved.
+  reserved_addr = (|tr.address[31:10]);
 
   `uvm_info(get_type_name(), $sformatf(
     "[APBS_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
@@ -1890,8 +1884,10 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
 
   // Public master test mode address range: [EFUSE_BASE_ADDR, EFUSE_BASE_ADDR + 0x200) for SRAM write-invalid check
   addr_in_range = (tr.address >= EFUSE_BASE_ADDR) && (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE);
-  // Reserved address: beyond the test-mode accessible range (>= EFUSE_BASE_ADDR + 0x300)
-  reserved_addr = (tr.address >= EFUSE_BASE_ADDR + TEST_MODE_ACC_SIZE);
+  // Reserved/reverse address by bit decode: a non-reverse public address requires
+  // address[31:13] == 0, address[11:10] == 0, and bit[12] == 1 (the EFUSE_BASE_ADDR
+  // 0x1000 select must be set). So it is reserved unless all three conditions hold.
+  reserved_addr = !((tr.address[31:13] == '0) && (tr.address[12] == 1'b1) && (tr.address[11:10] == 2'b00));
 
   `uvm_info(get_type_name(), $sformatf(
     "[APBP_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
