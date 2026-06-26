@@ -809,6 +809,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
   end
 
   backdoor_cfg_efuse = 1'b0;
+
+  // Notify SVA/monitor that backdoor cfg has been applied to DUT_FUSE/REF_FUSE.
+  -> efuse_ctrl_vif.cfg_backdoor_apply_event;
 endtask
 
 function void efuse_ctrl_scoreboard::check_pslverr(svt_apb_transaction tr, bit expected_err);
@@ -1062,6 +1065,9 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
     lcs_state, efuse_ctrl_vif.expect_device_id_bit, efuse_ctrl_vif.expect_feature_cfg_bit, efuse_ctrl_vif.expect_memory_cfg_bit,
     efuse_ctrl_vif.expect_analog_calibre_bit, efuse_ctrl_vif.expect_dcu_en_bit, efuse_ctrl_vif.expect_boot_latch_pin
   ), UVM_HIGH)
+
+  // Notify SVA/monitor that VIF/SVA expected values have been updated.
+  -> efuse_ctrl_vif.update_sva_expect_event;
 endtask
 
 //----------------------------------------------------------------------------
