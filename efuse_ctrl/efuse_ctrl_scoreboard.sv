@@ -160,8 +160,7 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
     input bit [31:0]      pri_word_data,
     input bit [31:0]      shd_word_data,
     input mem_type_enum   mem_type,
-    input write_type_enum write_type = FORCE_WRITE,
-    input bit             force_normal_mode = 1'b0
+    input write_type_enum write_type = FORCE_WRITE
   );
 
   //==========================================================================
@@ -476,6 +475,8 @@ task efuse_ctrl_scoreboard::read_word(
 );
   logic [fuse_addr_size - 1 : 0] pri_A;
   logic [fuse_addr_size - 1 : 0] shd_A;
+  logic [fuse_addr_size - 1 : 0] test_mode_A;
+  logic                          test_mode;
 
   // SRAM is word-addressable, has no primary/shadow split, and bypasses LFSR
   if (mem_type == DUT_SRAM || mem_type == REF_SRAM) begin
@@ -488,19 +489,32 @@ task efuse_ctrl_scoreboard::read_word(
     return;
   end
 
+  if (reg_model == null) begin
+    `uvm_fatal(get_type_name(), "read_word: reg_model is null")
+  end
+
+  // Determine effective test mode (force_normal_mode overrides reg_model setting).
+  test_mode = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
+
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
+  test_mode_A = {{(fuse_addr_size - 8){1'b0}}, addr[9:2]};
 
-  ReadFuse(pri_A, pri_data, mem_type, force_normal_mode);
-  ReadFuse(shd_A, shd_data, mem_type, force_normal_mode);
-
-  // LFSR decode is applied to the combined primary|shadow word.
-  // pri_data/shd_data remain raw encoded fuse bits; word_data is the logical value.
-  word_data = rd_lfsr_translate(addr, pri_data | shd_data);
+  if (test_mode === 1'b0) begin
+    // Normal mode: read primary and shadow planes and LFSR decode.
+    ReadFuse(pri_A, pri_data, mem_type, force_normal_mode);
+    ReadFuse(shd_A, shd_data, mem_type, force_normal_mode);
+    word_data = wr_lfsr_translate(addr, pri_data | shd_data);
+  end else begin
+    // Test mode: read test row/column directly without LFSR decode.
+    ReadFuse(test_mode_A, word_data, mem_type, force_normal_mode);
+    pri_data = word_data;
+    shd_data = word_data;
+  end
 
   `uvm_info(get_type_name(), $sformatf(
-    "Read word: addr=0x%08x mem_type=%s force_normal_mode=%0b pri=0x%08x shd=0x%08x data=0x%08x",
-    addr, mem_type.name(), force_normal_mode, pri_data, shd_data, word_data
+    "Read word: addr=0x%08x mem_type=%s force_normal_mode=%0b test_mode=%0b pri=0x%08x shd=0x%08x data=0x%08x",
+    addr, mem_type.name(), force_normal_mode, test_mode, pri_data, shd_data, word_data
   ), UVM_HIGH)
 endtask
 
@@ -589,13 +603,13 @@ task efuse_ctrl_scoreboard::write_fuse_word_by_pri_sdh(
   input bit [31:0]      pri_word_data,
   input bit [31:0]      shd_word_data,
   input mem_type_enum   mem_type,
-  input write_type_enum write_type,
-  input bit             force_normal_mode
+  input write_type_enum write_type
 );
   logic [fuse_addr_size - 1 : 0] pri_A;
   logic [fuse_addr_size - 1 : 0] shd_A;
   logic [fuse_addr_size - 1 : 0] bit_A;
   logic                          bit_data;
+  bit                            force_normal_mode = 1'b1;
 
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
@@ -656,8 +670,8 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
       is_key_addr = (init_addr >= MODE_KEY_START && init_addr < MODE_KEY_START + 16) ||
                     (init_addr >= DEVICE_KEY_START && init_addr < DEVICE_KEY_START + 16);
       if (is_key_addr) begin
-        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, REF_FUSE, FORCE_WRITE, 1'b1);
+        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, DUT_FUSE, FORCE_WRITE);
+        write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, REF_FUSE, FORCE_WRITE);
       end else begin
         write_word(init_addr, init_word, DUT_FUSE, FORCE_WRITE, 1'b1);
         write_word(init_addr, init_word, REF_FUSE, FORCE_WRITE, 1'b1);
@@ -675,8 +689,8 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
   for (int i = 0; i < 4; i++) begin
     bit [31:0] key_word = cfg.mode_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = MODE_KEY_START + i*4;
-    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE);
     if (enable_sram_modify) begin
       write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
       write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
@@ -688,8 +702,8 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
   for (int i = 0; i < 4; i++) begin
     bit [31:0] key_word = cfg.device_key_no_lfsr[i*32 +: 32];
     bit [31:0] key_addr = DEVICE_KEY_START + i*4;
-    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE, 1'b1);
-    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE, 1'b1);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE);
+    write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE);
     if (enable_sram_modify) begin
       write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
       write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
