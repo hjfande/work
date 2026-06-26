@@ -1144,7 +1144,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
     end else begin
       read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
-    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, $sformatf(
+    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, $sformatf(
       "%s ref-dut consistency read_from_efuse=%0b backdoor_mem_type=%s",
       reason, read_from_efuse, backdoor_mem_type.name()
     ))
@@ -1276,7 +1276,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, {reason, " read backdoor"})
 
     read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
-    `CHECK_DATA_MATCH(tr.address, hw_data, ref_data, {reason, " ref-dut consistency"})
+    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, " ref-dut consistency"})
 
     check_pslverr(tr, 1'b0);
   end
