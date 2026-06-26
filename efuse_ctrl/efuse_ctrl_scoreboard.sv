@@ -517,8 +517,10 @@ task efuse_ctrl_scoreboard::write_word(
 );
   logic [fuse_addr_size - 1 : 0] pri_A;
   logic [fuse_addr_size - 1 : 0] shd_A;
+  logic [fuse_addr_size - 1 : 0] test_mode_A;
   logic [fuse_addr_size - 1 : 0] bit_A;
   logic                          bit_data;
+  logic                          test_mode;
   bit [31:0]                     efuse_word_data;
 
   // SRAM is word-addressable, has no primary/shadow split, and bypasses LFSR
@@ -530,8 +532,16 @@ task efuse_ctrl_scoreboard::write_word(
     return;
   end
 
+  if (reg_model == null) begin
+    `uvm_fatal(get_type_name(), "write_word: reg_model is null")
+  end
+
+  // Determine effective test mode (force_normal_mode overrides reg_model setting).
+  test_mode = force_normal_mode ? 1'b0 : reg_model.efuse_ctrl_acc_cfg.efuse_test_mode.get();
+
   pri_A = {{(fuse_addr_size - 7){1'b0}}, addr[8:2]};
   shd_A = {{(fuse_addr_size - 8){1'b0}}, 1'b1, addr[8:2]};
+  test_mode_A = {{(fuse_addr_size - 8){1'b0}}, addr[9:2]};
 
   if (force_normal_mode && !backdoor_cfg_efuse) begin
     `uvm_warning(get_type_name(), $sformatf(
@@ -540,21 +550,33 @@ task efuse_ctrl_scoreboard::write_word(
     ))
   end
 
-  efuse_word_data = wr_lfsr_translate(addr, word_data);
+  // In test mode, APB data is written directly without LFSR encoding.
+  if (test_mode === 1'b0) begin
+    efuse_word_data = wr_lfsr_translate(addr, word_data);
+  end else begin
+    efuse_word_data = word_data;
+  end
 
   for (int i = 0; i < out_size; i++) begin
     bit_data = efuse_word_data[i];
 
-    bit_A = {i[out_addr_size-1:0], pri_A[read_addr_size-1:0]};
-    WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+    if (test_mode === 1'b0) begin
+      // Normal mode: write both primary and shadow planes.
+      bit_A = {i[out_addr_size-1:0], pri_A[read_addr_size-1:0]};
+      WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
 
-    bit_A = {i[out_addr_size-1:0], shd_A[read_addr_size-1:0]};
-    WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+      bit_A = {i[out_addr_size-1:0], shd_A[read_addr_size-1:0]};
+      WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+    end else begin
+      // Test mode: write test row/column directly.
+      bit_A = {i[out_addr_size-1:0], test_mode_A[read_addr_size-1:0]};
+      WriteFuse(bit_A, bit_data, mem_type, write_type, force_normal_mode);
+    end
   end
 
   `uvm_info(get_type_name(), $sformatf(
-    "Write word: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b apb_data=0x%08x efuse_data=0x%08x",
-    addr, mem_type.name(), write_type.name(), force_normal_mode, word_data, efuse_word_data
+    "Write word: addr=0x%08x mem_type=%s write_type=%s force_normal_mode=%0b test_mode=%0b apb_data=0x%08x efuse_data=0x%08x",
+    addr, mem_type.name(), write_type.name(), force_normal_mode, test_mode, word_data, efuse_word_data
   ), UVM_HIGH)
 endtask
 
@@ -1242,7 +1264,6 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     bit expect_pslverr;
     bit [3:0] pstrb;
     bit [31:0] tr_data_strbed;
-    bit [31:0] new_one;
 
     read_word(logic_addr, mem_data, pri_data_ref, shd_data_ref, REF_FUSE);
 
@@ -1251,17 +1272,14 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
     // In test mode, APB write data is applied directly to fuse without LFSR encoding.
     expected_data = mem_data | tr_data_strbed;
-    new_one = expected_data & ~mem_data;
     expect_pslverr = 1'b0;
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-    `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one, pri_data_fuse, {reason, " DUT_FUSE primary"})
-    `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one, shd_data_fuse, {reason, " DUT_FUSE shadow"})
-    `CHECK_DATA_MATCH(tr.address, mem_data | new_one, hw_data, {reason, " DUT_FUSE decoded"})
+    `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test_mode"})
 
     check_pslverr(tr, expect_pslverr);
-    write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one, shd_data_ref | new_one, REF_FUSE, FORCE_WRITE);
+    write_word(logic_addr, expected_data, REF_FUSE, FORCE_WRITE);
   end
 endtask
 
