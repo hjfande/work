@@ -46,30 +46,43 @@ class rom_ctrl_addr_walking_sequence extends rom_ctrl_base_sequence;
         rom_ctrl_transaction rsp;
         bit [ROM_CTRL_HIT_WIDTH-1:0]  exp_hit;
         bit [ROM_CTRL_DATA_WIDTH-1:0] exp_data;
+        bit [ROM_CTRL_DATA_WIDTH-1:0] data_mask;
+        bit                           data_match;
 
-        // Traverse addresses from rom_patch_cfg; cfg stores word addresses,
-        // convert to byte addresses by shifting left 2 bits.
-        for (int i = 0; i < $size(cfg.rom_patch_addr); i++) begin
+        // Traverse addresses from rom_patch_cfg; cfg stores byte addresses,
+        // which are driven onto rom_ctrl_addr directly.
+        for (int i = 0; i < $size(cfg.rom_patch_byte_addr); i++) begin
             tr = rom_ctrl_transaction::type_id::create($sformatf("tr_%0d", i));
             start_item(tr);
             assert(tr.randomize() with {
-                rom_ctrl_addr     == (cfg.rom_patch_addr[i] << 2);
+                rom_ctrl_addr     == cfg.rom_patch_byte_addr[i];
                 rom_ctrl_addr_vld == 1'b1;
             });
             finish_item(tr);
             get_response(rsp);
 
-            cfg.get_expect(cfg.rom_patch_addr[i], exp_hit, exp_data);
+            cfg.get_expect(cfg.rom_patch_byte_addr[i], exp_hit, exp_data);
 
-            if (rsp.rom_patch_hit !== exp_hit || rsp.rom_patch_data !== exp_data) begin
+            // Only the data slices whose hit bit is set are valid; build a per-bit
+            // mask from exp_hit (hit[j] -> data[32*j +: 32]) and compare only the
+            // valid portion. Non-hit slices are don't-care in the DUT response.
+            data_mask = '0;
+            for (int j = 0; j < ROM_CTRL_HIT_WIDTH; j++) begin
+                if (exp_hit[j]) begin
+                    data_mask[ROM_PATCH_WORD_DATA_WIDTH*j +: ROM_PATCH_WORD_DATA_WIDTH] = '1;
+                end
+            end
+            data_match = ((rsp.rom_patch_data & data_mask) === (exp_data & data_mask));
+
+            if (rsp.rom_patch_hit !== exp_hit || !data_match) begin
                 `uvm_error(get_type_name(), $sformatf(
-                  "ROM patch mismatch! idx=%0d word_addr=0x%08x exp_hit=0x%1x act_hit=0x%1x exp_data=0x%032x act_data=0x%032x",
-                  i, cfg.rom_patch_addr[i], exp_hit, rsp.rom_patch_hit, exp_data, rsp.rom_patch_data
+                  "ROM patch mismatch! idx=%0d byte_addr=0x%08x exp_hit=0x%1x act_hit=0x%1x exp_data=0x%032x act_data=0x%032x mask=0x%032x",
+                  i, cfg.rom_patch_byte_addr[i], exp_hit, rsp.rom_patch_hit, exp_data, rsp.rom_patch_data, data_mask
                 ))
             end else begin
                 `uvm_info(get_type_name(), $sformatf(
-                  "ROM patch match idx=%0d word_addr=0x%08x hit=0x%1x data=0x%032x",
-                  i, cfg.rom_patch_addr[i], rsp.rom_patch_hit, rsp.rom_patch_data
+                  "ROM patch match idx=%0d byte_addr=0x%08x hit=0x%1x data=0x%032x",
+                  i, cfg.rom_patch_byte_addr[i], rsp.rom_patch_hit, rsp.rom_patch_data
                 ), UVM_MEDIUM)
             end
         end

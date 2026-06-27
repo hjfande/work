@@ -10,6 +10,7 @@ package rom_ctrl_pkg;
     // Parameters
     //============================================================================
     parameter int ROM_CTRL_ADDR_WIDTH = 32;
+    parameter int ROM_CTRL_VALID_ADDR_WIDTH = 18;  // 256KB ROM patch space
     parameter int ROM_CTRL_HIT_WIDTH  = 4;
     parameter int ROM_CTRL_DATA_WIDTH = 128;  // 4*32
 
