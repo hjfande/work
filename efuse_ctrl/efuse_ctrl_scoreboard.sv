@@ -689,6 +689,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
   if (!cfg.initial_done) begin
     for (bit [31:0] init_addr = 0; init_addr < EFUSE_SIZE; init_addr += 4) begin
       bit [31:0] init_word;
+      bit [31:0] sram_word;
       bit        is_key_addr;
       case (cfg.initial_type)
         INITIAL_ALL_ZERO: init_word = 32'h0;
@@ -698,41 +699,54 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
       is_key_addr = (init_addr >= MODE_KEY_START && init_addr < MODE_KEY_START + 16) ||
                     (init_addr >= DEVICE_KEY_START && init_addr < DEVICE_KEY_START + 16);
       if (is_key_addr) begin
+        // Key region: init_word is raw eFuse data written as-is to FUSE.
         write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, DUT_FUSE, FORCE_WRITE);
         write_fuse_word_by_pri_sdh(init_addr, init_word, init_word, REF_FUSE, FORCE_WRITE);
       end else begin
+        // Non-key region: write_word encodes init_word (logical) into FUSE raw.
         write_word(init_addr, init_word, DUT_FUSE, FORCE_WRITE, 1'b1);
         write_word(init_addr, init_word, REF_FUSE, FORCE_WRITE, 1'b1);
       end
       if (enable_sram_modify) begin
-        write_word(init_addr, init_word, DUT_SRAM, FORCE_WRITE);
-        write_word(init_addr, init_word, REF_SRAM, FORCE_WRITE);
+        // Key region SRAM loads the LFSR-decoded value, except an all-zero raw
+        // word -> 0; non-key region SRAM holds the logical value directly.
+        if (is_key_addr) begin
+          sram_word = (init_word == 0) ? 0 : rd_lfsr_translate(init_addr, init_word);
+        end else begin
+          sram_word = init_word;
+        end
+        write_word(init_addr, sram_word, DUT_SRAM, FORCE_WRITE);
+        write_word(init_addr, sram_word, REF_SRAM, FORCE_WRITE);
       end
     end
     cfg.initial_done = 1'b1;
   end
 
-  // MODE_KEY_NO_LFSR: 128 bits at APB offsets 0x04, 0x08, 0x0C, 0x10
-  // Written raw to FUSE (no LFSR) and normally to SRAM.
+  // MODE_KEY: 128-bit raw eFuse data at APB offsets 0x04, 0x08, 0x0C, 0x10.
+  // Only MODE_KEY/DEVICE_KEY use the LFSR transform. The raw value is written to
+  // FUSE as-is; on load to SRAM it is LFSR-decoded, except an all-zero raw word
+  // (unburned key) which loads as 0 (decode of 0 would be non-zero).
   for (int i = 0; i < 4; i++) begin
-    bit [31:0] key_word = cfg.mode_key_no_lfsr[i*32 +: 32];
+    bit [31:0] key_word = cfg.mode_key_efuse_data[i*32 +: 32];
     bit [31:0] key_addr = MODE_KEY_START + i*4;
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE);
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE);
     if (enable_sram_modify) begin
+      key_word = (key_word == 0) ? 0 : rd_lfsr_translate(key_addr, key_word);
       write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
       write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
     end
   end
 
-  // DEVICE_KEY_NO_LFSR: 128 bits at APB offsets 0x18, 0x1C, 0x20, 0x24
-  // Written raw to FUSE (no LFSR) and normally to SRAM.
+  // DEVICE_KEY: 128-bit raw eFuse data at APB offsets 0x18, 0x1C, 0x20, 0x24.
+  // Same raw-to-FUSE / LFSR-decode-to-SRAM semantics as MODE_KEY above.
   for (int i = 0; i < 4; i++) begin
-    bit [31:0] key_word = cfg.device_key_no_lfsr[i*32 +: 32];
+    bit [31:0] key_word = cfg.device_key_efuse_data[i*32 +: 32];
     bit [31:0] key_addr = DEVICE_KEY_START + i*4;
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, DUT_FUSE, FORCE_WRITE);
     write_fuse_word_by_pri_sdh(key_addr, key_word, key_word, REF_FUSE, FORCE_WRITE);
     if (enable_sram_modify) begin
+      key_word = (key_word == 0) ? 0 : rd_lfsr_translate(key_addr, key_word);
       write_word(key_addr, key_word, DUT_SRAM, FORCE_WRITE);
       write_word(key_addr, key_word, REF_SRAM, FORCE_WRITE);
     end

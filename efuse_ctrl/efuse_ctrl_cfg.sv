@@ -33,8 +33,8 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(top_acc_sec_region_bit, UVM_ALL_ON)
     `uvm_field_enum(initial_type_e, initial_type, UVM_ALL_ON)
     `uvm_field_int(initial_done,           UVM_ALL_ON)
-    `uvm_field_int(mode_key_no_lfsr,        UVM_ALL_ON)
-    `uvm_field_int(device_key_no_lfsr,      UVM_ALL_ON)
+    `uvm_field_int(mode_key_efuse_data,     UVM_ALL_ON)
+    `uvm_field_int(device_key_efuse_data,   UVM_ALL_ON)
     `uvm_field_sarray_int(dcu_en_lock_bit,  UVM_ALL_ON)
     `uvm_field_int(boot_cfg_vld,           UVM_ALL_ON)
     `uvm_field_int(rom_patch_hit,          UVM_ALL_ON)
@@ -67,11 +67,14 @@ class efuse_ctrl_cfg extends uvm_object;
   // 0 = allow public master secure region access, 1 = prohibit
   rand bit top_acc_sec_region_bit = 1'b0;
 
-  // 128-bit MODE_KEY (no LFSR encoding) stored at APB offsets 0x04/0x08/0x0C/0x10
-  bit [127:0] mode_key_no_lfsr;
+  // 128-bit MODE_KEY raw eFuse data stored at APB offsets 0x04/0x08/0x0C/0x10.
+  // This is the raw (LFSR-encoded) value held in the fuse; on load to SRAM it is
+  // LFSR-decoded (except an all-zero raw word, which loads as 0).
+  bit [127:0] mode_key_efuse_data;
 
-  // 128-bit DEVICE_KEY (no LFSR encoding) stored at APB offsets 0x18/0x1C/0x20/0x24
-  bit [127:0] device_key_no_lfsr;
+  // 128-bit DEVICE_KEY raw eFuse data stored at APB offsets 0x18/0x1C/0x20/0x24.
+  // Same raw-in-fuse / LFSR-decoded-to-SRAM semantics as mode_key_efuse_data.
+  bit [127:0] device_key_efuse_data;
 
   // DCU_EN lock bits (32-bit x 4 words) starting at APB offset 0x90
   bit [31:0] dcu_en_lock_bit [4];
