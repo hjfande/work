@@ -1201,7 +1201,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
     `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, $sformatf(
-      "%s read backdoor, read_from_efuse=%0b backdoor_mem_type=%s",
+      "%s, read backdoor compare, read_from_efuse=%0b backdoor_mem_type=%s",
       reason, read_from_efuse, backdoor_mem_type.name()
     ))
 
@@ -1212,7 +1212,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
     `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, $sformatf(
-      "%s ref-dut consistency, read_from_efuse=%0b backdoor_mem_type=%s",
+      "%s, ref-dut consistency, read_from_efuse=%0b backdoor_mem_type=%s",
       reason, read_from_efuse, backdoor_mem_type.name()
     ))
 
@@ -1249,10 +1249,10 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
       sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}) | tr_data_strbed;
 
-      `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " write backdoor, shadow-sram write, DUT_FUSE primary unchanged"})
-      `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " write backdoor, shadow-sram write, DUT_FUSE shadow unchanged"})
-      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, " write backdoor, shadow-sram write, DUT_FUSE decoded unchanged"})
-      `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, " write backdoor, shadow-sram write, DUT_SRAM"})
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, ", write backdoor compare, shadow-sram write, DUT_FUSE primary unchanged"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, ", write backdoor compare, shadow-sram write, DUT_FUSE shadow unchanged"})
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, ", write backdoor compare, shadow-sram write, DUT_FUSE decoded unchanged"})
+      `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, ", write backdoor compare, shadow-sram write, DUT_SRAM"})
 
       write_word(logic_addr, sram_expected_data, REF_SRAM, FORCE_WRITE);
 
@@ -1273,9 +1273,9 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       new_one_raw = expected_data_raw & ~mem_data_raw; // new bits that will be written to fuse
 
       // Normal fuse write: primary/shadow/decoded fuse are updated.
-      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " write backdoor, normal fuse write, DUT_FUSE primary"})
-      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " write backdoor, normal fuse write, DUT_FUSE shadow"})
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, normal fuse write, DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, ", write backdoor compare, normal fuse write, DUT_FUSE primary"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, ", write backdoor compare, normal fuse write, DUT_FUSE shadow"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, ", write backdoor compare, normal fuse write, DUT_FUSE decoded"})
 
       // Update reference fuse model for normal fuse writes.
       write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
@@ -1348,10 +1348,10 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     tr_data_cmp = collapse_test_col_bit(tr.data);
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-    `CHECK_DATA_MATCH(tr.address, hw_data, tr_data_cmp, {reason, " read backdoor, test mode"})
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr_data_cmp, {reason, ", read backdoor compare, test mode"})
 
     read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
-    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, " ref-dut consistency, test mode"})
+    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, ", ref-dut consistency, test mode"})
 
     check_pslverr(tr, 1'b0);
   end
@@ -1371,7 +1371,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, test row mode"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, ", write backdoor compare, test row mode"})
     end
     else begin
       // Test column mode: only a single column bit is written and it can only be
@@ -1381,7 +1381,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, test column mode"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, ", write backdoor compare, test column mode"})
     end
 
     expect_pslverr = 1'b0;
@@ -1823,9 +1823,10 @@ task efuse_ctrl_scoreboard::apb_test_mode_checker(svt_apb_transaction tr, bit is
 
   // In test mode:
   //   - SRAM read is illegal when read_from_efuse == 0 -> read returns 0 (checked regardless of address)
-  //   - SRAM write is illegal when shadow_sram_acc == 0 && wr_en == 1, but only checked within range
+  //   - SRAM write is illegal when shadow_sram_acc == 0 && wr_en == 1, across the
+  //     whole non-reserved test space (test row/col spans [0, 0x400), not just [0, 0x200))
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
-                        (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
+                        (tr.xact_type == svt_apb_transaction::WRITE && !reserved_addr && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
 
   // Illegal SRAM access check and good transaction check are mutually exclusive:
   // an illegal SRAM access is handled here and returns; otherwise fall through to
@@ -1834,18 +1835,22 @@ task efuse_ctrl_scoreboard::apb_test_mode_checker(svt_apb_transaction tr, bit is
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "test mode illegal sram read");
-    end else if (addr_in_range) begin
+    end else begin
       bit [31:0] ref_tm;
       bit [31:0] dut_tm;
-      read_word(logic_addr, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
-      read_word(logic_addr, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
-      `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
-      read_word(logic_addr, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
-      read_word(logic_addr, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "test mode illegal sram write, DUT_FUSE unchanged")
-      // Also verify the selected test row/column is unchanged. read_word with
-      // force_normal_mode=0 reads through the test row/col backdoor selected by
-      // efuse_test_row_col (returning only the valid bit in column mode).
+      // SRAM and the normal fuse plane only exist in [0, 0x200); check unchanged there.
+      if (addr_in_range) begin
+        read_word(logic_addr, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
+        read_word(logic_addr, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
+        `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
+        read_word(logic_addr, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
+        read_word(logic_addr, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+        `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "test mode illegal sram write, DUT_FUSE unchanged")
+      end
+      // The test row/col space spans the whole non-reserved range; verify it is
+      // unchanged. read_word with force_normal_mode=0 reads through the test
+      // row/col backdoor selected by efuse_test_row_col (only the valid bit in
+      // column mode).
       read_word(logic_addr, ref_tm, pri_data, shd_data, REF_FUSE, 1'b0);
       read_word(logic_addr, dut_tm, pri_data, shd_data, DUT_FUSE, 1'b0);
       `CHECK_DATA_MATCH(tr.address, ref_tm, dut_tm, "test mode illegal sram write, test row/col unchanged")
