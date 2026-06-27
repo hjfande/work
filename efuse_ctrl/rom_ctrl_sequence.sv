@@ -69,7 +69,7 @@ class rom_ctrl_addr_walking_sequence extends rom_ctrl_base_sequence;
             data_mask = '0;
             for (int j = 0; j < ROM_CTRL_HIT_WIDTH; j++) begin
                 if (exp_hit[j]) begin
-                    data_mask[ROM_PATCH_WORD_DATA_WIDTH*j +: ROM_PATCH_WORD_DATA_WIDTH] = '1;
+                    data_mask[ROM_CTRL_WORD_DATA_WIDTH*j +: ROM_CTRL_WORD_DATA_WIDTH] = '1;
                 end
             end
             data_match = ((rsp.rom_patch_data & data_mask) === (exp_data & data_mask));

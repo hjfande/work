@@ -16,8 +16,8 @@ class rom_patch_cfg extends uvm_object;
   // Number of patch entries
   localparam int ROM_PATCH_ENTRY_NUM = 32;
 
-  // Data width for each patch entry (total data width / hit width)
-  localparam int ROM_PATCH_WORD_DATA_WIDTH = ROM_CTRL_DATA_WIDTH / ROM_CTRL_HIT_WIDTH;
+  // Data width for each patch entry (per-word data width from the package)
+  localparam int ROM_PATCH_WORD_DATA_WIDTH = ROM_CTRL_WORD_DATA_WIDTH;
 
   // One hit bit per patch entry
   rand bit [ROM_PATCH_ENTRY_NUM-1:0] rom_patch_hit;
