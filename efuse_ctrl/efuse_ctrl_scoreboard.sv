@@ -1218,10 +1218,6 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
     // Normal read expects pslverr = 0
     check_pslverr(tr, 1'b0);
-
-    if (cfg.READ_UPDATE_SRAM && read_from_efuse) begin
-      write_word(logic_addr, hw_data, DUT_SRAM, FORCE_WRITE);
-    end
   end
   else begin // WRITE
     bit expect_pslverr;

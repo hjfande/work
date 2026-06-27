@@ -25,7 +25,6 @@ typedef enum bit [1:0] {
 class efuse_ctrl_cfg extends uvm_object;
 
   `uvm_object_utils_begin(efuse_ctrl_cfg)
-    `uvm_field_int(READ_UPDATE_SRAM,       UVM_ALL_ON)
     `uvm_field_enum(lcs_state_e, lcs_state, UVM_ALL_ON)
     `uvm_field_int(top_region_wr_disable,  UVM_ALL_ON)
     `uvm_field_int(top_region_rd_disable,  UVM_ALL_ON)
@@ -45,9 +44,6 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(dft_mode,               UVM_ALL_ON)
     `uvm_field_int(timeout_load_en,        UVM_ALL_ON)
   `uvm_object_utils_end
-
-  // Update DUT SRAM from fuse read data (default disabled)
-  rand bit READ_UPDATE_SRAM = 1'b0;
 
   // Life cycle state
   rand lcs_state_e lcs_state;
