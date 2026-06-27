@@ -1784,8 +1784,9 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
 
-  // Illegal SRAM access check and good transaction check are not mutually exclusive;
-  // both must be executed.
+  // Illegal SRAM access check and good transaction check are mutually exclusive:
+  // an illegal SRAM access is handled here and returns; otherwise fall through to
+  // the good transaction check below.
   if (illegal_sram_access) begin
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
@@ -1795,6 +1796,7 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
       read_word(tr.address, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
       `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
     end
+    return;
   end
 
   test_mode_good_trans_checker_and_ref_update(tr, tr.address, "secure master test mode efuse access");
@@ -1971,8 +1973,9 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
   illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
                         (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
 
-  // Illegal SRAM access check and good transaction check are not mutually exclusive;
-  // both must be executed.
+  // Illegal SRAM access check and good transaction check are mutually exclusive:
+  // an illegal SRAM access is handled here and returns; otherwise fall through to
+  // the good transaction check below.
   if (illegal_sram_access) begin
     check_pslverr(tr, 1'b0);
     if (tr.xact_type == svt_apb_transaction::READ) begin
@@ -1982,6 +1985,7 @@ task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
       read_word(tr.address - EFUSE_BASE_ADDR, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
       `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
     end
+    return;
   end
 
   test_mode_good_trans_checker_and_ref_update(tr, tr.address - EFUSE_BASE_ADDR, "public master test mode efuse access");
