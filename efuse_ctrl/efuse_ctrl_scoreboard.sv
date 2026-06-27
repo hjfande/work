@@ -1835,12 +1835,20 @@ task efuse_ctrl_scoreboard::apb_test_mode_checker(svt_apb_transaction tr, bit is
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "test mode illegal sram read");
     end else if (addr_in_range) begin
+      bit [31:0] ref_tm;
+      bit [31:0] dut_tm;
       read_word(logic_addr, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
       read_word(logic_addr, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
       `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
       read_word(logic_addr, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
       read_word(logic_addr, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
       `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "test mode illegal sram write, DUT_FUSE unchanged")
+      // Also verify the selected test row/column is unchanged. read_word with
+      // force_normal_mode=0 reads through the test row/col backdoor selected by
+      // efuse_test_row_col (returning only the valid bit in column mode).
+      read_word(logic_addr, ref_tm, pri_data, shd_data, REF_FUSE, 1'b0);
+      read_word(logic_addr, dut_tm, pri_data, shd_data, DUT_FUSE, 1'b0);
+      `CHECK_DATA_MATCH(tr.address, ref_tm, dut_tm, "test mode illegal sram write, test row/col unchanged")
     end
     return;
   end
