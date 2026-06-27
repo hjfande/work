@@ -1201,7 +1201,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, backdoor_mem_type);
     `CHECK_DATA_MATCH(tr.address, hw_data, tr.data, $sformatf(
-      "%s read backdoor read_from_efuse=%0b backdoor_mem_type=%s",
+      "%s read backdoor, read_from_efuse=%0b backdoor_mem_type=%s",
       reason, read_from_efuse, backdoor_mem_type.name()
     ))
 
@@ -1212,7 +1212,7 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_SRAM);
     end
     `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, $sformatf(
-      "%s ref-dut consistency read_from_efuse=%0b backdoor_mem_type=%s",
+      "%s ref-dut consistency, read_from_efuse=%0b backdoor_mem_type=%s",
       reason, read_from_efuse, backdoor_mem_type.name()
     ))
 
@@ -1249,10 +1249,10 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
       sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}) | tr_data_strbed;
 
-      `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " DUT_FUSE primary unchanged"})
-      `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " DUT_FUSE shadow unchanged"})
-      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, " DUT_FUSE decoded unchanged"})
-      `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, " DUT_SRAM"})
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, " write backdoor, shadow-sram write, DUT_FUSE primary unchanged"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, " write backdoor, shadow-sram write, DUT_FUSE shadow unchanged"})
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, {reason, " write backdoor, shadow-sram write, DUT_FUSE decoded unchanged"})
+      `CHECK_DATA_MATCH(tr.address, sram_expected_data, hw_data_sram, {reason, " write backdoor, shadow-sram write, DUT_SRAM"})
 
       write_word(logic_addr, sram_expected_data, REF_SRAM, FORCE_WRITE);
 
@@ -1273,9 +1273,9 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       new_one_raw = expected_data_raw & ~mem_data_raw; // new bits that will be written to fuse
 
       // Normal fuse write: primary/shadow/decoded fuse are updated.
-      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " DUT_FUSE primary"})
-      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " DUT_FUSE shadow"})
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE decoded"})
+      `CHECK_DATA_MATCH(tr.address, pri_data_ref | new_one_raw, pri_data_fuse, {reason, " write backdoor, normal fuse write, DUT_FUSE primary"})
+      `CHECK_DATA_MATCH(tr.address, shd_data_ref | new_one_raw, shd_data_fuse, {reason, " write backdoor, normal fuse write, DUT_FUSE shadow"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, normal fuse write, DUT_FUSE decoded"})
 
       // Update reference fuse model for normal fuse writes.
       write_fuse_word_by_pri_sdh(logic_addr, pri_data_ref | new_one_raw, shd_data_ref | new_one_raw, REF_FUSE, FORCE_WRITE);
@@ -1348,10 +1348,10 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
     tr_data_cmp = collapse_test_col_bit(tr.data);
 
     read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
-    `CHECK_DATA_MATCH(tr.address, hw_data, tr_data_cmp, {reason, " read backdoor"})
+    `CHECK_DATA_MATCH(tr.address, hw_data, tr_data_cmp, {reason, " read backdoor, test mode"})
 
     read_word(logic_addr, ref_data, ref_pri, ref_shd, REF_FUSE);
-    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, " ref-dut consistency"})
+    `CHECK_DATA_MATCH(tr.address, ref_data, hw_data, {reason, " ref-dut consistency, test mode"})
 
     check_pslverr(tr, 1'b0);
   end
@@ -1371,7 +1371,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test row mode"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, test row mode"})
     end
     else begin
       // Test column mode: only a single column bit is written and it can only be
@@ -1381,7 +1381,7 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 
       read_word(logic_addr, hw_data, pri_data_fuse, shd_data_fuse, DUT_FUSE);
 
-      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " DUT_FUSE test column mode"})
+      `CHECK_DATA_MATCH(tr.address, expected_data, hw_data, {reason, " write backdoor, test column mode"})
     end
 
     expect_pslverr = 1'b0;
