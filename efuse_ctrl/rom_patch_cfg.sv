@@ -37,8 +37,11 @@ class rom_patch_cfg extends uvm_object;
   function void get_expect(bit [ROM_CTRL_ADDR_WIDTH-1:0] word_addr,
                            output bit [ROM_CTRL_HIT_WIDTH-1:0] hit,
                            output bit [ROM_CTRL_DATA_WIDTH-1:0] data);
+    bit [ROM_CTRL_VALID_ADDR_WIDTH-1-2:0] valid_word_addr;
+
     hit = '0;
     data = '0;
+    valid_word_addr = word_addr[ROM_CTRL_VALID_ADDR_WIDTH-1-2:0];  // truncate to valid word address width
 
     // For each word offset in the address group, search rom_patch_addr from
     // the beginning. If the address matches and the hit bit is set, mark hit[j]
@@ -47,7 +50,7 @@ class rom_patch_cfg extends uvm_object;
       bit [ROM_PATCH_WORD_DATA_WIDTH-1:0] slice_data = '0;
       hit[j] = 1'b0;
       foreach (rom_patch_addr[i]) begin
-        if ((word_addr + j) == rom_patch_addr[i] && rom_patch_hit[i] == 1'b1) begin
+        if ((valid_word_addr + j) == rom_patch_addr[i] && rom_patch_hit[i] == 1'b1) begin
           hit[j] = 1'b1;
           slice_data = slice_data | rom_patch_data[i];
         end
