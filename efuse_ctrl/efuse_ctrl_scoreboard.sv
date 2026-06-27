@@ -252,8 +252,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   extern task update_vif_sva_expect_val();
 
   //==========================================================================
-  // Utility: read lfsr data translate via interface
-  //   Calls efuse_ctrl_vif.rd_lfsr_out_data with current efuse_test_mode.
+  // Utility: read lfsr data translate via interface (DECODE: raw -> logical)
+  //   Decodes raw (LFSR-encoded) fuse bits back to logical data on the read
+  //   path. Calls efuse_ctrl_vif.rd_lfsr_out_data with current efuse_test_mode.
   //==========================================================================
   extern function bit [31:0] rd_lfsr_translate(
     input bit [31:0] addr,
@@ -261,8 +262,9 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   );
 
   //==========================================================================
-  // Utility: write lfsr data translate via interface
-  //   Calls efuse_ctrl_vif.wr_lfsr_out_data with current efuse_test_mode.
+  // Utility: write lfsr data translate via interface (ENCODE: logical -> raw)
+  //   Encodes logical data into raw (LFSR-encoded) fuse bits on the write
+  //   path. Calls efuse_ctrl_vif.wr_lfsr_out_data with current efuse_test_mode.
   //==========================================================================
   extern function bit [31:0] wr_lfsr_translate(
     input bit [31:0] addr,
@@ -520,7 +522,7 @@ task efuse_ctrl_scoreboard::read_word(
     // Normal mode: read primary and shadow planes and LFSR decode.
     ReadFuse(pri_A, pri_data, mem_type, force_normal_mode);
     ReadFuse(shd_A, shd_data, mem_type, force_normal_mode);
-    word_data = wr_lfsr_translate(addr, pri_data | shd_data);
+    word_data = rd_lfsr_translate(addr, pri_data | shd_data);
   end else begin
     // Test mode: read test row/column directly without LFSR decode.
     // In test column mode, collapse the valid column bit to bit[0] so callers
@@ -909,6 +911,9 @@ function bit efuse_ctrl_scoreboard::is_before_efuse_load_done(svt_apb_transactio
   return (tr.svt_begin_realtime < efuse_load_done_time);
 endfunction
 
+//----------------------------------------------------------------------------
+// rd_lfsr_translate: DECODE raw (LFSR-encoded) fuse bits back to logical data.
+//----------------------------------------------------------------------------
 function bit [31:0] efuse_ctrl_scoreboard::rd_lfsr_translate(
   input bit [31:0] addr,
   input bit [31:0] data
@@ -922,6 +927,9 @@ function bit [31:0] efuse_ctrl_scoreboard::rd_lfsr_translate(
   return efuse_ctrl_vif.rd_lfsr_out_data(test_mode, addr, data);
 endfunction
 
+//----------------------------------------------------------------------------
+// wr_lfsr_translate: ENCODE logical data into raw (LFSR-encoded) fuse bits.
+//----------------------------------------------------------------------------
 function bit [31:0] efuse_ctrl_scoreboard::wr_lfsr_translate(
   input bit [31:0] addr,
   input bit [31:0] data
@@ -2260,7 +2268,8 @@ task efuse_ctrl_scoreboard::do_load_verify(string reason);
     // DUT_FUSE: combine primary + shadow, then apply LFSR decode
     read_word(addr, fuse_word, pri_tmp, shd_tmp, DUT_FUSE, 1'b1);
 
-    // Patch same with DUT
+    // Patch: if the fuse word encodes (wr_lfsr=encode) to all-zero raw bits,
+    // treat it as 0 to match DUT behavior.
     if (wr_lfsr_translate(addr, fuse_word) == 0) begin
       fuse_word = 0;
     end
@@ -2281,7 +2290,13 @@ task efuse_ctrl_scoreboard::do_load_verify(string reason);
   // Copy ref_fuse_data to ref_sram_data word-by-word
   for (word_idx = 0; word_idx < fuse_size/32/2; word_idx++) begin
     addr = word_idx * 4;
-    read_word(addr, ref_sram_data[word_idx], pri_tmp, shd_tmp, REF_FUSE, 1'b1);
+    read_word(addr, fuse_word, pri_tmp, shd_tmp, REF_FUSE, 1'b1);
+    // Patch: if the fuse word encodes (wr_lfsr=encode) to all-zero raw bits,
+    // store 0 to match DUT load behavior.
+    if (wr_lfsr_translate(addr, fuse_word) == 0) begin
+      fuse_word = 0;
+    end
+    ref_sram_data[word_idx] = fuse_word;
   end
   `uvm_info(get_type_name(), $sformatf("[LOAD] %s ref_fuse_data copied to ref_sram_data", reason), UVM_MEDIUM)
 endtask
