@@ -342,6 +342,13 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   extern task apbs_efuse_load_not_done_check(svt_apb_transaction tr);
 
   //==========================================================================
+  // Shared eFuse test mode checker for both masters.
+  //   is_public = 0: secure master  (logical addr = tr.address)
+  //   is_public = 1: public master  (logical addr = tr.address - EFUSE_BASE_ADDR)
+  //==========================================================================
+  extern task apb_test_mode_checker(svt_apb_transaction tr, bit is_public);
+
+  //==========================================================================
   // APB Public Master Checker for non-eFuse registers (addr < EFUSE_BASE_ADDR)
   //==========================================================================
   extern task apbp_reg_checker(svt_apb_transaction tr);
@@ -1738,35 +1745,53 @@ task efuse_ctrl_scoreboard::apbs_reg_checker(svt_apb_transaction tr);
 endtask
 
 //----------------------------------------------------------------------------
-// apbs_test_mode_checker: Secure master eFuse access in test mode
-// Illegal SRAM access: write invalid, read=0.
-// Legal access: dispatch to good_trans (follows test_mode for test row/col access).
+// apbs_test_mode_checker: Secure master eFuse access in test mode (thin wrapper)
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
+  apb_test_mode_checker(tr, 1'b0);
+endtask
+
+//----------------------------------------------------------------------------
+// apb_test_mode_checker: Shared eFuse test mode checker for both masters.
+// Illegal SRAM access: write invalid, read=0.
+// Legal access: dispatch to good_trans (follows test_mode for test row/col access).
+//   is_public = 0: secure master, logical addr = tr.address
+//   is_public = 1: public master, logical addr = tr.address - EFUSE_BASE_ADDR
+//----------------------------------------------------------------------------
+task efuse_ctrl_scoreboard::apb_test_mode_checker(svt_apb_transaction tr, bit is_public);
   bit read_from_efuse;
   bit shadow_sram_acc;
   bit wr_en;
   bit illegal_sram_access;
   bit addr_in_range;
   bit reserved_addr;
+  bit [31:0] logic_addr;
   bit [31:0] sram_data;
   bit [31:0] ref_sram_data;
+  bit [31:0] hw_data;
+  bit [31:0] mem_data;
   bit [31:0] pri_data;
   bit [31:0] shd_data;
+  string     tag;
 
   read_from_efuse = reg_model.efuse_ctrl_acc_cfg.read_from_efuse.get();
   get_shadow_sram_acc_bit(shadow_sram_acc);
   wr_en = reg_model.efuse_shadow_sram.wr_en.get();
 
-  // Secure master test mode address range: [0, 0x200) for SRAM write-invalid check
-  addr_in_range = (tr.address < EFUSE_SIZE);
-  // Reserved/reverse address by bit decode: a non-reverse address requires
+  // Normalize to the eFuse logical address; the public master adds EFUSE_BASE_ADDR.
+  // The dispatcher guarantees tr.address >= EFUSE_BASE_ADDR for the public master.
+  logic_addr = is_public ? (tr.address - EFUSE_BASE_ADDR) : tr.address;
+  tag        = is_public ? "APBP_TEST" : "APBS_TEST";
+
+  // Test mode address range: logical [0, 0x200) for the SRAM write-invalid check.
+  addr_in_range = (logic_addr < EFUSE_SIZE);
+  // Reserved/reverse address by bit decode: a non-reverse logical address requires
   // address[31:10] == 0, so any bit at or above bit[10] being set marks it reserved.
-  reserved_addr = (|tr.address[31:10]);
+  reserved_addr = (|logic_addr[31:10]);
 
   `uvm_info(get_type_name(), $sformatf(
-    "[APBS_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
-    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, addr_in_range, reserved_addr
+    "[%s] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
+    tag, tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, addr_in_range, reserved_addr
   ), UVM_HIGH)
 
   // Reserved address access: read returns 0; write cannot be checked for ignored behavior.
@@ -1792,14 +1817,20 @@ task efuse_ctrl_scoreboard::apbs_test_mode_checker(svt_apb_transaction tr);
     if (tr.xact_type == svt_apb_transaction::READ) begin
       check_read_data(tr, 32'h0, "test mode illegal sram read");
     end else if (addr_in_range) begin
-      read_word(tr.address, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
-      read_word(tr.address, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
+      read_word(logic_addr, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
+      read_word(logic_addr, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
       `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
+      read_word(logic_addr, mem_data, pri_data, shd_data, REF_FUSE, 1'b1);
+      read_word(logic_addr, hw_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+      `CHECK_DATA_MATCH(tr.address, mem_data, hw_data, "test mode illegal sram write, DUT_FUSE unchanged")
     end
     return;
   end
 
-  test_mode_good_trans_checker_and_ref_update(tr, tr.address, "secure master test mode efuse access");
+  test_mode_good_trans_checker_and_ref_update(
+    tr, logic_addr,
+    is_public ? "public master test mode efuse access" : "secure master test mode efuse access"
+  );
 endtask
 
 //----------------------------------------------------------------------------
@@ -1926,69 +1957,10 @@ task efuse_ctrl_scoreboard::apbp_checker();
 endtask
 
 //----------------------------------------------------------------------------
-// apbp_test_mode_checker: Public master eFuse access in test mode
-// Illegal SRAM access: write invalid, read=0.
-// Legal access: dispatch to good_trans (follows test_mode for test row/col access).
+// apbp_test_mode_checker: Public master eFuse access in test mode (thin wrapper)
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbp_test_mode_checker(svt_apb_transaction tr);
-  bit read_from_efuse;
-  bit shadow_sram_acc;
-  bit wr_en;
-  bit illegal_sram_access;
-  bit addr_in_range;
-  bit reserved_addr;
-  bit [31:0] sram_data;
-  bit [31:0] ref_sram_data;
-  bit [31:0] pri_data;
-  bit [31:0] shd_data;
-
-  read_from_efuse = reg_model.efuse_ctrl_acc_cfg.read_from_efuse.get();
-  get_shadow_sram_acc_bit(shadow_sram_acc);
-  wr_en = reg_model.efuse_shadow_sram.wr_en.get();
-
-  // Public master test mode address range: [EFUSE_BASE_ADDR, EFUSE_BASE_ADDR + 0x200) for SRAM write-invalid check
-  addr_in_range = (tr.address >= EFUSE_BASE_ADDR) && (tr.address < EFUSE_BASE_ADDR + EFUSE_SIZE);
-  // Reserved/reverse address by bit decode: a non-reverse public address requires
-  // address[31:13] == 0, address[11:10] == 0, and bit[12] == 1 (the EFUSE_BASE_ADDR
-  // 0x1000 select must be set). So it is reserved unless all three conditions hold.
-  reserved_addr = !((tr.address[31:13] == '0) && (tr.address[12] == 1'b1) && (tr.address[11:10] == 2'b00));
-
-  `uvm_info(get_type_name(), $sformatf(
-    "[APBP_TEST] %s addr=0x%08x read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b addr_in_range=%0b reserved_addr=%0b",
-    tr.xact_type.name(), tr.address, read_from_efuse, shadow_sram_acc, wr_en, addr_in_range, reserved_addr
-  ), UVM_HIGH)
-
-  // Reserved address access: read returns 0; write cannot be checked for ignored behavior.
-  if (reserved_addr) begin
-    check_pslverr(tr, 1'b0);
-    if (tr.xact_type == svt_apb_transaction::READ) begin
-      check_read_data(tr, 32'h0, "test mode reserved address read returns 0");
-    end
-    return;
-  end
-
-  // In test mode:
-  //   - SRAM read is illegal when read_from_efuse == 0 -> read returns 0 (checked regardless of address)
-  //   - SRAM write is illegal when shadow_sram_acc == 0 && wr_en == 1, but only checked within range
-  illegal_sram_access = (tr.xact_type == svt_apb_transaction::READ  && read_from_efuse === 1'b0) ||
-                        (tr.xact_type == svt_apb_transaction::WRITE && addr_in_range && shadow_sram_acc === 1'b0 && wr_en === 1'b1);
-
-  // Illegal SRAM access check and good transaction check are mutually exclusive:
-  // an illegal SRAM access is handled here and returns; otherwise fall through to
-  // the good transaction check below.
-  if (illegal_sram_access) begin
-    check_pslverr(tr, 1'b0);
-    if (tr.xact_type == svt_apb_transaction::READ) begin
-      check_read_data(tr, 32'h0, "test mode illegal sram read");
-    end else if (addr_in_range) begin
-      read_word(tr.address - EFUSE_BASE_ADDR, sram_data, pri_data, shd_data, DUT_SRAM, 1'b1);
-      read_word(tr.address - EFUSE_BASE_ADDR, ref_sram_data, pri_data, shd_data, REF_SRAM, 1'b1);
-      `CHECK_DATA_MATCH(tr.address, ref_sram_data, sram_data, "test mode illegal sram write, DUT_SRAM unchanged")
-    end
-    return;
-  end
-
-  test_mode_good_trans_checker_and_ref_update(tr, tr.address - EFUSE_BASE_ADDR, "public master test mode efuse access");
+  apb_test_mode_checker(tr, 1'b1);
 endtask
 
 //----------------------------------------------------------------------------
