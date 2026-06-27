@@ -670,7 +670,7 @@ task efuse_ctrl_scoreboard::reconfig(input efuse_ctrl_cfg new_cfg);
     return;
   end
   cfg.copy(new_cfg);
-  `uvm_info(get_type_name(), "reconfig: scoreboard cfg updated", UVM_MEDIUM)
+  `uvm_info(get_type_name(), $sformatf("reconfig: scoreboard cfg updated\n%s", cfg.sprint()), UVM_MEDIUM)
   update_vif_sva_expect_val();
 endtask
 
@@ -682,6 +682,10 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
   bit [31:0] word_data;
   bit [31:0] pri_data;
   bit [31:0] shd_data;
+
+  `uvm_info(get_type_name(), $sformatf(
+    "apply_cfg_to_fuse_sram: enable_sram_modify=%0b\n%s", enable_sram_modify, cfg.sprint()
+  ), UVM_MEDIUM)
 
   backdoor_cfg_efuse = 1'b1;
 
