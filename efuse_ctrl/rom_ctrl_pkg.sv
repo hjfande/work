@@ -24,11 +24,15 @@ package rom_ctrl_pkg;
     typedef logic [ROM_CTRL_DATA_WIDTH-1:0] rom_ctrl_data_t;
 
     //============================================================================
+    // ROM Patch Configuration (must be defined before rom_ctrl_config, which
+    // holds a rom_patch_cfg sub-config handle)
+    //============================================================================
+    `include "rom_patch_cfg.sv"
+
+    //============================================================================
     // Configuration Object
     //============================================================================
     class rom_ctrl_config extends uvm_object;
-
-        `uvm_object_utils(rom_ctrl_config)
 
         // Agent mode
         uvm_active_passive_enum is_active = UVM_ACTIVE;
@@ -47,8 +51,16 @@ package rom_ctrl_pkg;
         int front_pipe = `EFUSE_CTRL_ROM_PATCH_FRONT_PIPE;  // additional cycles before sampling response
         int back_pipe  = `EFUSE_CTRL_ROM_PATCH_BACK_PIPE;   // base cycles after addr_vld before sampling response
 
+        // ROM patch sub-configuration (patch entries, valid_data_width, etc.)
+        rand rom_patch_cfg patch_cfg;
+
+        `uvm_object_utils_begin(rom_ctrl_config)
+            `uvm_field_object(patch_cfg, UVM_ALL_ON)
+        `uvm_object_utils_end
+
         function new(string name = "rom_ctrl_config");
             super.new(name);
+            patch_cfg = rom_patch_cfg::type_id::create("patch_cfg");
         endfunction
 
         virtual function string convert2string();
@@ -59,11 +71,6 @@ package rom_ctrl_pkg;
         endfunction
 
     endclass
-
-    //============================================================================
-    // ROM Patch Configuration
-    //============================================================================
-    `include "rom_patch_cfg.sv"
 
     //============================================================================
     // Agent Components (include order matters!)

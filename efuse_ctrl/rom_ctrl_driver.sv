@@ -40,7 +40,20 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
         end
     endtask
 
+    // Align a byte address to the group size implied by patch_cfg.valid_data_width.
+    // 128bit -> 16B (4 words), 64bit -> 8B (2 words), 32bit -> 4B (1 word).
+    function rom_ctrl_addr_t align_addr(rom_ctrl_addr_t addr);
+        int valid_data_width = (cfg.patch_cfg != null) ? cfg.patch_cfg.valid_data_width : ROM_CTRL_DATA_WIDTH;
+        case (valid_data_width)
+            128:     align_addr = addr & ~rom_ctrl_addr_t'('hF);  // 16-byte aligned
+            64:      align_addr = addr & ~rom_ctrl_addr_t'('h7);  // 8-byte aligned
+            default: align_addr = addr & ~rom_ctrl_addr_t'('h3);  // 4-byte (word) aligned
+        endcase
+    endfunction
+
     virtual task drive_item(rom_ctrl_transaction tr);
+        rom_ctrl_addr_t driven_addr;
+
         // Wait for reset release
         @(vif.drv_cb);
         if (!vif.rom_ctrl_rst_n) begin
@@ -51,8 +64,18 @@ class rom_ctrl_driver extends uvm_driver #(rom_ctrl_transaction);
         // Apply delay before driving
         repeat (tr.addr_vld_delay) @(vif.drv_cb);
 
+        // Align the address to the valid_data_width group before driving
+        driven_addr = align_addr(tr.rom_ctrl_addr);
+        if (driven_addr !== tr.rom_ctrl_addr) begin
+            `uvm_info(get_type_name(), $sformatf(
+              "Aligned addr 0x%08x -> 0x%08x (valid_data_width=%0d)",
+              tr.rom_ctrl_addr, driven_addr,
+              (cfg.patch_cfg != null) ? cfg.patch_cfg.valid_data_width : ROM_CTRL_DATA_WIDTH
+            ), UVM_HIGH)
+        end
+
         // Drive address and assert valid for one cycle only
-        vif.drv_cb.rom_ctrl_addr     <= tr.rom_ctrl_addr;
+        vif.drv_cb.rom_ctrl_addr     <= driven_addr;
         vif.drv_cb.rom_ctrl_addr_vld <= 1'b1;
         @(vif.drv_cb);
 

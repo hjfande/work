@@ -11,16 +11,29 @@
 //----------------------------------------------------------------------------
 class rom_patch_cfg extends uvm_object;
 
+  // Allowed valid data widths. enum int so the value is usable directly in
+  // arithmetic (e.g. valid_data_width / ROM_CTRL_WORD_DATA_WIDTH).
+  typedef enum int {
+    VALID_DW_32  = 32,
+    VALID_DW_64  = 64,
+    VALID_DW_128 = 128
+  } valid_data_width_e;
+
   // Number of patch entries
   localparam int ROM_PATCH_ENTRY_NUM = 32;
 
   // Valid (used) data width, runtime-configurable via config_db (default = full
   // ROM_CTRL_DATA_WIDTH). The valid hit count derived from it may be smaller than
   // the physical ROM_CTRL_HIT_WIDTH.
-  rand int valid_data_width = ROM_CTRL_DATA_WIDTH;
+  valid_data_width_e valid_data_width = VALID_DW_128;
+
+  // When set, addresses within each group are forced to be consecutive words.
+  // Group size = get_valid_hit_width() (128bit -> 4 entries, 64bit -> 2, 32bit -> 1).
+  bit continue_addr_enable = 1;
 
   `uvm_object_utils_begin(rom_patch_cfg)
-    `uvm_field_int(valid_data_width, UVM_ALL_ON)
+    `uvm_field_enum(valid_data_width_e, valid_data_width, UVM_ALL_ON)
+    `uvm_field_int(continue_addr_enable,       UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_byte_addr, UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_data,      UVM_ALL_ON)
     `uvm_field_int(rom_patch_hit,              UVM_ALL_ON)
@@ -36,17 +49,26 @@ class rom_patch_cfg extends uvm_object;
   rand bit [ROM_CTRL_WORD_DATA_WIDTH-1:0] rom_patch_data [ROM_PATCH_ENTRY_NUM];
 
   constraint rom_patch_addr_align_c {
-    if (valid_data_width == 128) {
-      foreach (rom_patch_byte_addr[i])
-        rom_patch_byte_addr[i][3:0] == 4'b0000;  // 16-byte aligned
-    } else if (valid_data_width == 64) {
-      foreach (rom_patch_byte_addr[i])
-        rom_patch_byte_addr[i][2:0] == 3'b00;  // 8-byte aligned
-    } else if (valid_data_width == 32) {
-      foreach (rom_patch_byte_addr[i])
-        rom_patch_byte_addr[i][1:0] == 2'b00;  // 4-byte aligned
+    foreach (rom_patch_byte_addr[i])
+      rom_patch_byte_addr[i][1:0] == 2'b00;  // each address is 4-byte aligned
+  }
+
+  // When continue_addr_enable is set, addresses within each group are
+  // consecutive words: a non-group-first entry must equal the previous entry
+  // plus one word (4 bytes). Group size follows valid_data_width:
+  //   128bit -> 4 entries per group, 64bit -> 2, 32bit -> 1 (no constraint).
+  constraint rom_patch_addr_continue_c {
+    if (continue_addr_enable) {
+      if (valid_data_width == VALID_DW_128) {
+        foreach (rom_patch_byte_addr[i])
+          if (i % 4 != 0)
+            rom_patch_byte_addr[i] == rom_patch_byte_addr[i-1] + 4;
+      } else if (valid_data_width == VALID_DW_64) {
+        foreach (rom_patch_byte_addr[i])
+          if (i % 2 != 0)
+            rom_patch_byte_addr[i] == rom_patch_byte_addr[i-1] + 4;
+      }
     }
-    valid_data_width inside {32, 64, 128};
   }
 
   function new(string name = "rom_patch_cfg");

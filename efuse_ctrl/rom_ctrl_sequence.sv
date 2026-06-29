@@ -4,8 +4,10 @@ class rom_ctrl_base_sequence extends uvm_sequence #(rom_ctrl_transaction);
 
     int num_transactions = 10;
 
-    // ROM patch configuration, retrieved from config_db
-    rom_patch_cfg cfg;
+    // ROM control configuration (holds the rom_patch_cfg sub-config).
+    rom_ctrl_config rom_cfg;
+    // ROM patch sub-configuration handle (rom_cfg.patch_cfg), used for lookups.
+    rom_patch_cfg   cfg;
 
     function new(string name = "rom_ctrl_base_sequence");
         super.new(name);
@@ -13,9 +15,13 @@ class rom_ctrl_base_sequence extends uvm_sequence #(rom_ctrl_transaction);
 
     virtual task pre_body();
         super.pre_body();
-        if (!uvm_config_db#(rom_patch_cfg)::get(get_sequencer(), "", "rom_patch_cfg", cfg)) begin
-            `uvm_fatal(get_type_name(), "Failed to get rom_patch_cfg from config_db")
+        if (!uvm_config_db#(rom_ctrl_config)::get(get_sequencer(), "", "cfg", rom_cfg)) begin
+            `uvm_fatal(get_type_name(), "Failed to get rom_ctrl_config from config_db")
         end
+        if (rom_cfg.patch_cfg == null) begin
+            `uvm_fatal(get_type_name(), "rom_ctrl_config.patch_cfg is null")
+        end
+        cfg = rom_cfg.patch_cfg;
     endtask
 
     virtual task body();
