@@ -3,11 +3,16 @@
 
 // Macro: check_data_match
 // Compares expected_data vs actual_data at the given addr.
+// On mismatch, also dump cfg and the current SRAM enable status to aid debug.
 `define CHECK_DATA_MATCH(addr, expected_data, actual_data, reason) \
   if ((actual_data) !== (expected_data)) begin \
     `uvm_error("efuse_ctrl_scoreboard", $sformatf( \
-      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s)", \
-      (addr), (expected_data), (actual_data), (reason) \
+      "BACKDOOR MISMATCH! addr=0x%08x exp=0x%08x act=0x%08x (%s)\n  SRAM enable: read_from_efuse=%0b shadow_sram_acc=%0b wr_en=%0b\n  cfg:\n%s", \
+      (addr), (expected_data), (actual_data), (reason), \
+      reg_model.efuse_ctrl_acc_cfg.read_from_efuse.get(), \
+      cfg.shadow_sram_acc_bit, \
+      reg_model.efuse_shadow_sram.wr_en.get(), \
+      cfg.sprint() \
     )) \
   end else begin \
     `uvm_info("efuse_ctrl_scoreboard", $sformatf( \
