@@ -1256,7 +1256,17 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
 
       // Shadow-SRAM-only write: fuse data remains unchanged, SRAM is updated.
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
-      sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}) | tr_data_strbed;
+
+      // write_all_zero detection: a strobed write data of all-zero is an
+      // ineffective write; SRAM keeps its previous value instead of being updated.
+      if (tr_data_strbed == 32'h0) begin
+        `uvm_info(get_type_name(), $sformatf(
+          "[%s] write_all_zero (strobed): shadow-sram write ineffective, addr=0x%08x", reason, tr.address
+        ), UVM_HIGH)
+        sram_expected_data = ref_sram_data;
+      end else begin
+        sram_expected_data = ref_sram_data & ~({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}}) | tr_data_strbed;
+      end
 
       `CHECK_DATA_MATCH(tr.address, pri_data_ref, pri_data_fuse, {reason, ", write backdoor compare, shadow-sram write, DUT_FUSE primary unchanged"})
       `CHECK_DATA_MATCH(tr.address, shd_data_ref, shd_data_fuse, {reason, ", write backdoor compare, shadow-sram write, DUT_FUSE shadow unchanged"})
