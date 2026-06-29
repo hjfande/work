@@ -60,13 +60,19 @@ class rom_patch_cfg extends uvm_object;
   constraint rom_patch_addr_continue_c {
     if (continue_addr_enable) {
       if (valid_data_width == VALID_DW_128) {
-        foreach (rom_patch_byte_addr[i])
+        foreach (rom_patch_byte_addr[i]) {
           if (i % 4 != 0)
             rom_patch_byte_addr[i] == rom_patch_byte_addr[i-1] + 4;
+          else
+            rom_patch_byte_addr[i][3:0] == 4'b0;  // group head: 16-byte aligned
+        }
       } else if (valid_data_width == VALID_DW_64) {
-        foreach (rom_patch_byte_addr[i])
+        foreach (rom_patch_byte_addr[i]) {
           if (i % 2 != 0)
             rom_patch_byte_addr[i] == rom_patch_byte_addr[i-1] + 4;
+          else
+            rom_patch_byte_addr[i][2:0] == 3'b0;  // group head: 8-byte aligned
+        }
       }
     }
   }
