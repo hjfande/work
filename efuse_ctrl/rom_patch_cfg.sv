@@ -17,10 +17,10 @@ class rom_patch_cfg extends uvm_object;
   // Valid (used) data width, runtime-configurable via config_db (default = full
   // ROM_CTRL_DATA_WIDTH). The valid hit count derived from it may be smaller than
   // the physical ROM_CTRL_HIT_WIDTH.
-  int ROM_CTRL_VALID_DATA_WIDTH = ROM_CTRL_DATA_WIDTH;
+  rand int valid_data_width = ROM_CTRL_DATA_WIDTH;
 
   `uvm_object_utils_begin(rom_patch_cfg)
-    `uvm_field_int(ROM_CTRL_VALID_DATA_WIDTH, UVM_ALL_ON)
+    `uvm_field_int(valid_data_width, UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_byte_addr, UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_data,      UVM_ALL_ON)
     `uvm_field_int(rom_patch_hit,              UVM_ALL_ON)
@@ -35,13 +35,27 @@ class rom_patch_cfg extends uvm_object;
   // 32-bit patch data for each entry
   rand bit [ROM_CTRL_WORD_DATA_WIDTH-1:0] rom_patch_data [ROM_PATCH_ENTRY_NUM];
 
+  constraint rom_patch_addr_align_c {
+    if (valid_data_width == 128) {
+      foreach (rom_patch_byte_addr[i])
+        rom_patch_byte_addr[i][3:0] == 4'b0000;  // 16-byte aligned
+    } else if (valid_data_width == 64) {
+      foreach (rom_patch_byte_addr[i])
+        rom_patch_byte_addr[i][2:0] == 3'b00;  // 8-byte aligned
+    } else if (valid_data_width == 32) {
+      foreach (rom_patch_byte_addr[i])
+        rom_patch_byte_addr[i][1:0] == 2'b00;  // 4-byte aligned
+    }
+    valid_data_width inside {32, 64, 128};
+  }
+
   function new(string name = "rom_patch_cfg");
     super.new(name);
   endfunction
 
   // Number of valid hit bits derived from the runtime valid data width.
   function int get_valid_hit_width();
-    return ROM_CTRL_VALID_DATA_WIDTH / ROM_CTRL_WORD_DATA_WIDTH;
+    return valid_data_width / ROM_CTRL_WORD_DATA_WIDTH;
   endfunction
 
   // Get expected hit/data for a given byte address.
