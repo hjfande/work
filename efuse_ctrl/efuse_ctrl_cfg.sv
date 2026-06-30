@@ -114,6 +114,62 @@ class efuse_ctrl_cfg extends uvm_object;
     super.new(name);
   endfunction
 
+  //--------------------------------------------------------------------------
+  // addr_hit: return 1 if the word-aligned offset hits a region that holds a
+  // cfg-controlled field (see cfg_efuse_bit_unchange for the address map).
+  //   efuse_offset : eFuse logical byte offset (relative to EFUSE_BASE_ADDR).
+  //--------------------------------------------------------------------------
+  function bit addr_hit(bit [31:0] efuse_offset);
+    bit [31:0] word_addr;
+    word_addr = {efuse_offset[31:2], 2'b00};  // 4-byte align
+    return (word_addr inside {32'h48, 32'h7C, 32'h80, 32'h90, 32'hA0, 32'hA8});
+  endfunction
+
+  //--------------------------------------------------------------------------
+  // cfg_efuse_bit_unchange: force the cfg-controlled bits to their cfg values.
+  //   efuse_offset : eFuse logical byte offset (relative to EFUSE_BASE_ADDR).
+  //   data         : the 32-bit word to be patched.
+  // When the word-aligned offset hits a region holding a cfg-controlled field,
+  // the corresponding bit(s) in data are overwritten with the cfg value so they
+  // stay consistent with cfg; all other bits are left unchanged. Returns the
+  // patched data.
+  //
+  // Offset / bit map (logical byte offset):
+  //   0x48 [3:0]  lcs_state
+  //   0x7C [7:0]  top_region_wr_disable
+  //   0x80 [7:0]  top_region_rd_disable
+  //   0x90 [0]    dcu_en_lock_bit[0][0]
+  //   0xA0 [31]   boot_cfg_vld
+  //   0xA8 [10]   shadow_sram_acc_bit
+  //   0xA8 [9]    top_acc_sec_region_bit
+  //--------------------------------------------------------------------------
+  function bit [31:0] cfg_efuse_bit_unchange(bit [31:0] efuse_offset, bit [31:0] data);
+    bit [31:0] word_addr;
+    bit [31:0] result;
+
+    result = data;
+    if (!addr_hit(efuse_offset)) begin
+      return result;  // not a cfg-controlled region: leave data unchanged
+    end
+
+    word_addr = {efuse_offset[31:2], 2'b00};  // 4-byte align
+
+    case (word_addr)
+      32'h48: result[3:0]  = 4'(lcs_state);
+      32'h7C: result[7:0]  = top_region_wr_disable;
+      32'h80: result[7:0]  = top_region_rd_disable;
+      32'h90: result[0]    = dcu_en_lock_bit[0][0];
+      32'hA0: result[31]   = boot_cfg_vld;
+      32'hA8: begin
+        result[10] = shadow_sram_acc_bit;
+        result[9]  = top_acc_sec_region_bit;
+      end
+      default: ; // unreachable (addr_hit already filtered)
+    endcase
+
+    return result;
+  endfunction
+
 endclass
 
 `endif // EFUSE_CTRL_CFG_SV
