@@ -81,9 +81,17 @@ class rom_ctrl_addr_walking_sequence extends rom_ctrl_base_sequence;
             data_match = ((rsp.rom_patch_data & data_mask) === (exp_data & data_mask));
 
             if (rsp.rom_patch_hit !== exp_hit || !data_match) begin
+                string dump;
+                dump = "";
+                foreach (cfg.rom_patch_byte_addr[k]) begin
+                    dump = {dump, $sformatf(
+                      "\n  [%0d] byte_addr=0x%08x hit=%0b data=0x%08x",
+                      k, cfg.rom_patch_byte_addr[k], cfg.rom_patch_hit[k], cfg.rom_patch_data[k]
+                    )};
+                end
                 `uvm_error(get_type_name(), $sformatf(
-                  "ROM patch mismatch! idx=%0d byte_addr=0x%08x exp_hit=0x%1x act_hit=0x%1x exp_data=0x%032x act_data=0x%032x mask=0x%032x",
-                  i, cfg.rom_patch_byte_addr[i], exp_hit, rsp.rom_patch_hit, exp_data, rsp.rom_patch_data, data_mask
+                  "ROM patch mismatch! idx=%0d byte_addr=0x%08x exp_hit=0x%1x act_hit=0x%1x exp_data=0x%032x act_data=0x%032x mask=0x%032x\n  rom_patch_cfg entries:%s",
+                  i, cfg.rom_patch_byte_addr[i], exp_hit, rsp.rom_patch_hit, exp_data, rsp.rom_patch_data, data_mask, dump
                 ))
             end else begin
                 `uvm_info(get_type_name(), $sformatf(
