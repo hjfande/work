@@ -91,9 +91,9 @@ class rom_patch_cfg extends uvm_object;
   function void get_expect(bit [ROM_CTRL_ADDR_WIDTH-1:0] byte_addr,
                            output bit [ROM_CTRL_HIT_WIDTH-1:0] hit,
                            output bit [ROM_CTRL_DATA_WIDTH-1:0] data);
-    bit [ROM_CTRL_ADDR_WIDTH-1:0] align_byte_addr;
-    bit [ROM_CTRL_ADDR_WIDTH-1:0] align_word_addr;
-    int                           group_bytes;
+    bit [ROM_CTRL_ADDR_WIDTH-1:0]        align_byte_addr;
+    bit [ROM_CTRL_VALID_ADDR_WIDTH-1:2]  align_word_addr;
+    int                                  group_bytes;
 
     hit = '0;
     data = '0;
@@ -102,17 +102,18 @@ class rom_patch_cfg extends uvm_object;
     // valid_data_width/8 bytes (128bit -> 16B, 64bit -> 8B, 32bit -> 4B).
     group_bytes     = get_valid_hit_width() * 4;
     align_byte_addr = byte_addr & ~(group_bytes - 1);
-    align_word_addr = align_byte_addr[ROM_CTRL_ADDR_WIDTH-1:2];
+    // Keep only the valid address bits for comparison (256KB ROM patch space).
+    align_word_addr = align_byte_addr[ROM_CTRL_VALID_ADDR_WIDTH-1:2];
 
     // For each word offset in the address group, search the patch entries from
     // the beginning. If the (byte) address matches and the hit bit is set, mark
     // hit[j] and OR the corresponding data into the result slice.
     for (int j = 0; j < get_valid_hit_width(); j++) begin
       bit [ROM_CTRL_WORD_DATA_WIDTH-1:0]   slice_data = '0;
-      bit [ROM_CTRL_ADDR_WIDTH-1:0]        cmp_word_addr = align_word_addr + j;
+      bit [ROM_CTRL_VALID_ADDR_WIDTH-1:2]  cmp_word_addr = align_word_addr + j;
       hit[j] = 1'b0;
       foreach (rom_patch_byte_addr[i]) begin
-        if (cmp_word_addr == rom_patch_byte_addr[i][ROM_CTRL_ADDR_WIDTH-1:2] && rom_patch_hit[i] == 1'b1) begin
+        if (cmp_word_addr == rom_patch_byte_addr[i][ROM_CTRL_VALID_ADDR_WIDTH-1:2] && rom_patch_hit[i] == 1'b1) begin
           hit[j] = 1'b1;
           slice_data = slice_data | rom_patch_data[i];
         end
