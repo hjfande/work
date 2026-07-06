@@ -35,6 +35,7 @@ class efuse_ctrl_cfg extends uvm_object;
     `uvm_field_int(mode_key_efuse_data,     UVM_ALL_ON)
     `uvm_field_int(device_key_efuse_data,   UVM_ALL_ON)
     `uvm_field_sarray_int(dcu_en_lock_bit,  UVM_ALL_ON)
+    `uvm_field_sarray_int(non_secure_deny_addr, UVM_ALL_ON)
     `uvm_field_int(boot_cfg_vld,           UVM_ALL_ON)
     `uvm_field_int(rom_patch_hit,          UVM_ALL_ON)
     `uvm_field_sarray_int(rom_patch_addr,  UVM_ALL_ON)
@@ -75,6 +76,10 @@ class efuse_ctrl_cfg extends uvm_object;
   // DCU_EN lock bits (32-bit x 4 words) starting at APB offset 0x90
   bit [31:0] dcu_en_lock_bit [4];
 
+  // APB public master non-eFuse register addresses that deny NON_SECURE access.
+  // Read returns 0 with pslverr=0; writes are ignored.
+  bit [31:0] non_secure_deny_addr [9];
+
   // Boot configuration selection value at APB offset 0xA0 bit[31]
   bit boot_cfg_vld = 1'b0;
 
@@ -112,6 +117,9 @@ class efuse_ctrl_cfg extends uvm_object;
 
   function new(string name = "efuse_ctrl_cfg");
     super.new(name);
+    non_secure_deny_addr = '{32'h0, 32'h10, 32'h14, 32'h1c,
+                             32'h20, 32'h24, 32'h28, 32'h2c,
+                             32'h44};
   endfunction
 
   //--------------------------------------------------------------------------
@@ -168,6 +176,18 @@ class efuse_ctrl_cfg extends uvm_object;
     endcase
 
     return result;
+  endfunction
+
+  //--------------------------------------------------------------------------
+  // is_non_secure_deny_reg: return 1 if addr is in non_secure_deny_addr list
+  //--------------------------------------------------------------------------
+  function bit is_non_secure_deny_reg(bit [31:0] addr);
+    foreach (non_secure_deny_addr[i]) begin
+      if (addr == non_secure_deny_addr[i]) begin
+        return 1'b1;
+      end
+    end
+    return 1'b0;
   endfunction
 
 endclass

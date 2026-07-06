@@ -2128,27 +2128,12 @@ endtask
 //----------------------------------------------------------------------------
 // apbp_reg_checker: Handle APB public master access to non-eFuse registers
 // (addresses below EFUSE_BASE_ADDR).
-// PPROT1 check has the highest priority: NON_SECURE access is ignored, read
-// returns 0 with pslverr=0, and writes have no side effect.
-// When address > 0x44 (and access is secure), access is denied: write invalid,
-// read=0, pslverr=1.
+// When address > 0x44, access is denied: write invalid, read=0, pslverr=1.
+// For the addresses listed in non_secure_deny_addr, NON_SECURE access is
+// ignored: read returns 0 with pslverr=0, and writes have no side effect.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
   bit expect_pslverr;
-
-  // PPROT1 (secure/non-secure) handling has the highest priority.
-  // NON_SECURE accesses are ignored: read returns 0, write has no side effect.
-  if (tr.pprot1 === svt_apb_transaction::NON_SECURE) begin
-    `uvm_info(get_type_name(), $sformatf(
-      "[APBP_REG] pprot1=NON_SECURE non-secure access: addr=0x%08x %s data=0x%08x",
-      tr.address, tr.xact_type.name(), tr.data
-    ), UVM_HIGH)
-    check_pslverr(tr, 1'b0);
-    if (tr.xact_type == svt_apb_transaction::READ) begin
-      check_read_data(tr, 32'h0, "public master NON_SECURE register read returns 0");
-    end
-    return;
-  end
 
   if (tr.address > 32'h44) begin
     expect_pslverr = 1'b1;
@@ -2165,6 +2150,23 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
   end else begin
     bit [3:0]  pstrb;
     bit [31:0] tr_data_strbed;
+    bit        reg_non_secure_deny;
+
+    // Check if this register is in the NON_SECURE deny list (from cfg).
+    reg_non_secure_deny = cfg.is_non_secure_deny_reg(tr.address);
+
+    // NON_SECURE access to listed registers is ignored: read returns 0, write no effect.
+    if (reg_non_secure_deny && tr.pprot1 === svt_apb_transaction::NON_SECURE) begin
+      `uvm_info(get_type_name(), $sformatf(
+        "[APBP_REG] pprot1=NON_SECURE non-secure access to protected register: addr=0x%08x %s data=0x%08x",
+        tr.address, tr.xact_type.name(), tr.data
+      ), UVM_HIGH)
+      check_pslverr(tr, 1'b0);
+      if (tr.xact_type == svt_apb_transaction::READ) begin
+        check_read_data(tr, 32'h0, "public master NON_SECURE protected register read returns 0");
+      end
+      return;
+    end
 
     // Apply APB byte strobe (pstrb): only strobed bytes take effect.
     pstrb = tr.pstrb;
