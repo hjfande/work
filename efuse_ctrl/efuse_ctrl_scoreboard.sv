@@ -2128,10 +2128,27 @@ endtask
 //----------------------------------------------------------------------------
 // apbp_reg_checker: Handle APB public master access to non-eFuse registers
 // (addresses below EFUSE_BASE_ADDR).
-// When address > 0x44, access is denied: write invalid, read=0, pslverr=1.
+// PPROT1 check has the highest priority: NON_SECURE access is ignored, read
+// returns 0 with pslverr=0, and writes have no side effect.
+// When address > 0x44 (and access is secure), access is denied: write invalid,
+// read=0, pslverr=1.
 //----------------------------------------------------------------------------
 task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
   bit expect_pslverr;
+
+  // PPROT1 (secure/non-secure) handling has the highest priority.
+  // NON_SECURE accesses are ignored: read returns 0, write has no side effect.
+  if (tr.pprot1 === svt_apb_transaction::NON_SECURE) begin
+    `uvm_info(get_type_name(), $sformatf(
+      "[APBP_REG] pprot1=NON_SECURE non-secure access: addr=0x%08x %s data=0x%08x",
+      tr.address, tr.xact_type.name(), tr.data
+    ), UVM_HIGH)
+    check_pslverr(tr, 1'b0);
+    if (tr.xact_type == svt_apb_transaction::READ) begin
+      check_read_data(tr, 32'h0, "public master NON_SECURE register read returns 0");
+    end
+    return;
+  end
 
   if (tr.address > 32'h44) begin
     expect_pslverr = 1'b1;
@@ -2146,20 +2163,27 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
       check_read_data(tr, 32'h0, "public master register access denied");
     end
   end else begin
+    bit [3:0]  pstrb;
+    bit [31:0] tr_data_strbed;
+
+    // Apply APB byte strobe (pstrb): only strobed bytes take effect.
+    pstrb = tr.pstrb;
+    tr_data_strbed = tr.data & ({{8{pstrb[3]}}, {8{pstrb[2]}}, {8{pstrb[1]}}, {8{pstrb[0]}}});
+
     `uvm_info(get_type_name(), $sformatf(
-      "[APBP_REG] %s addr=0x%08x data=0x%08x (non-eFuse register, below/equal 0x44, placeholder)",
-      tr.xact_type.name(), tr.address, tr.data
+      "[APBP_REG] %s addr=0x%08x data=0x%08x pstrb=0x%01x strbed=0x%08x (non-eFuse register, below/equal 0x44, placeholder)",
+      tr.xact_type.name(), tr.address, tr.data, pstrb, tr_data_strbed
     ), UVM_MEDIUM)
 
     // Detect software load trigger: efuse_sw_load.cfg write-1-to-trigger
     if (tr.xact_type == svt_apb_transaction::WRITE &&
         tr.address == reg_model.efuse_sw_load.get_offset()) begin
       bit cfg_bit;
-      cfg_bit = (tr.data >> reg_model.efuse_sw_load.cfg.get_lsb_pos()) & 1'b1;
+      cfg_bit = (tr_data_strbed >> reg_model.efuse_sw_load.cfg.get_lsb_pos()) & 1'b1;
       if (cfg_bit) begin
         `uvm_info(get_type_name(), $sformatf(
-          "[LOAD] software load trigger detected (efuse_sw_load.cfg=1) at addr=0x%08x data=0x%08x",
-          tr.address, tr.data
+          "[LOAD] software load trigger detected (efuse_sw_load.cfg=1) at addr=0x%08x data=0x%08x strbed=0x%08x",
+          tr.address, tr.data, tr_data_strbed
         ), UVM_MEDIUM)
         software_load_started = 1'b1;
         efuse_ctrl_vif.soft_load_done = 1'b0;
@@ -2189,10 +2213,10 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
     if (tr.xact_type == svt_apb_transaction::WRITE &&
         tr.address == reg_model.efuse_dcu_en.get_offset()) begin
       bit update_bit;
-      update_bit = (tr.data >> reg_model.efuse_dcu_en.update.get_lsb_pos()) & 1'b1;
+      update_bit = (tr_data_strbed >> reg_model.efuse_dcu_en.update.get_lsb_pos()) & 1'b1;
       `uvm_info(get_type_name(), $sformatf(
-        "[APBP_REG] efuse_dcu_en register write detected at addr=0x%08x data=0x%08x update=%0b",
-        tr.address, tr.data, update_bit
+        "[APBP_REG] efuse_dcu_en register write detected at addr=0x%08x data=0x%08x strbed=0x%08x update=%0b",
+        tr.address, tr.data, tr_data_strbed, update_bit
       ), UVM_MEDIUM)
       if (update_bit && !dcu_en_dd_updated) begin
         efuse_dcu_en_written = 1'b1;
@@ -2209,8 +2233,8 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
          tr.address == reg_model.efuse_dcu_en2.get_offset() ||
          tr.address == reg_model.efuse_dcu_en3.get_offset())) begin
       `uvm_info(get_type_name(), $sformatf(
-        "[APBP_REG] efuse_dcu_en0~3 register write detected at addr=0x%08x data=0x%08x",
-        tr.address, tr.data
+        "[APBP_REG] efuse_dcu_en0~3 register write detected at addr=0x%08x data=0x%08x strbed=0x%08x",
+        tr.address, tr.data, tr_data_strbed
       ), UVM_MEDIUM)
       update_vif_sva_expect_val();
     end
@@ -2220,8 +2244,8 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
     if (tr.xact_type == svt_apb_transaction::WRITE &&
         tr.address == reg_model.efuse_ctrl_acc_cfg.get_offset()) begin
       `uvm_info(get_type_name(), $sformatf(
-        "[APBP_REG] efuse_ctrl_acc_cfg write detected at addr=0x%08x data=0x%08x",
-        tr.address, tr.data
+        "[APBP_REG] efuse_ctrl_acc_cfg write detected at addr=0x%08x data=0x%08x strbed=0x%08x",
+        tr.address, tr.data, tr_data_strbed
       ), UVM_MEDIUM)
       update_vif_sva_expect_val();
     end
