@@ -115,6 +115,8 @@ class rom_patch_cfg extends uvm_object;
       foreach (rom_patch_byte_addr[i]) begin
         if (cmp_word_addr == rom_patch_byte_addr[i][ROM_CTRL_VALID_ADDR_WIDTH-1:2] && rom_patch_hit[i] == 1'b1) begin
           hit[j] = 1'b1;
+        end
+        if (cmp_word_addr == rom_patch_byte_addr[i][ROM_CTRL_VALID_ADDR_WIDTH-1:2]) begin
           slice_data = slice_data | rom_patch_data[i];
         end
       end
