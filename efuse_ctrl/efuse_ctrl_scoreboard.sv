@@ -1257,11 +1257,13 @@ task efuse_ctrl_scoreboard::good_trans_checker_and_ref_update(
       // Shadow-SRAM-only write: fuse data remains unchanged, SRAM is updated.
       read_word(logic_addr, hw_data_sram, pri_data_sram, shd_data_sram, DUT_SRAM);
 
-      // write_all_zero detection: a strobed write data of all-zero is an
-      // ineffective write; SRAM keeps its previous value instead of being updated.
-      if (tr_data_strbed == 32'h0) begin
+      // all_zero_deny detection: simulate the DUT behavior where an
+      // LFSR-scrambled (test-mode dependent) strobed write data of all-zero, or
+      // a write with no byte strobe, is an ineffective write; SRAM keeps its
+      // previous value instead of being updated.
+      if (wr_lfsr_translate(logic_addr, tr_data_strbed) == 32'h0 || pstrb == 4'b0) begin
         `uvm_info(get_type_name(), $sformatf(
-          "[%s] write_all_zero (strobed): shadow-sram write ineffective, addr=0x%08x", reason, tr.address
+          "[%s] write_all_zero (strobed/LFSR-encoded): shadow-sram write ineffective, addr=0x%08x", reason, tr.address
         ), UVM_HIGH)
         sram_expected_data = ref_sram_data;
       end else begin
