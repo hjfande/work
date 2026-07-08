@@ -1068,6 +1068,9 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   // Drive cfg lcs_state to vif for SVA/reference use
   efuse_ctrl_vif.lcs_state = 4'(cfg.lcs_state);
 
+  // expect_timeout_load_en: driven from cfg for SVA timeout-load detection
+  efuse_ctrl_vif.expect_timeout_load_en = cfg.timeout_load_en;
+
   // expect_dcu_en_bit calculation
   if (lcs_state == LCS_DD) begin
     // In LCS_DD, expect_dcu_en_bit is allowed to update only once.
@@ -2282,9 +2285,9 @@ task efuse_ctrl_scoreboard::auto_load_check();
       continue;
     end
 
-    // Skip auto load verify when load_timeout_en (boot_strap_pin MSB) is asserted.
-    if (efuse_ctrl_vif.boot_strap_pin[efuse_ctrl_vif.BOOT_PIN_NUM-1]) begin
-      `uvm_info(get_type_name(), "[LOAD] load_timeout_en asserted, skipping auto load verify", UVM_MEDIUM)
+    // Skip auto load verify when cfg.timeout_load_en is asserted.
+    if (cfg.timeout_load_en) begin
+      `uvm_info(get_type_name(), "[LOAD] cfg.timeout_load_en asserted, skipping auto load verify", UVM_MEDIUM)
     end else begin
       do_load_verify("auto load");
     end
