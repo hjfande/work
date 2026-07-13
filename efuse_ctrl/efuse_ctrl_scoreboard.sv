@@ -1080,7 +1080,7 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
       bit [31:0] dcu_en2;
       bit [31:0] dcu_en3;
 
-      // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit.
+      // efuse_dcu_en.request is a write-1-to-trigger (W1T) bit.
       // Once software writes 1 to update, dcu_en_dd_updated is set so that this
       // block runs only once; dcu_en_src is always taken from the current
       // software-configured value stored in efuse_dcu_en0~3.
@@ -2215,12 +2215,12 @@ task efuse_ctrl_scoreboard::apbp_reg_checker(svt_apb_transaction tr);
     end
 
     // Detect writes to efuse_dcu_en register.
-    // efuse_dcu_en.update is a write-1-to-trigger (W1T) bit; when software writes 1,
+    // efuse_dcu_en.request is a write-1-to-trigger (W1T) bit; when software writes 1,
     // it triggers an update of expect_dcu_en_bit (only once in LCS_DD).
     if (tr.xact_type == svt_apb_transaction::WRITE &&
         tr.address == reg_model.efuse_dcu_en.get_offset()) begin
       bit update_bit;
-      update_bit = (tr_data_strbed >> reg_model.efuse_dcu_en.update.get_lsb_pos()) & 1'b1;
+      update_bit = (tr_data_strbed >> reg_model.efuse_dcu_en.request.get_lsb_pos()) & 1'b1;
       `uvm_info(get_type_name(), $sformatf(
         "[APBP_REG] efuse_dcu_en register write detected at addr=0x%08x data=0x%08x strbed=0x%08x update=%0b",
         tr.address, tr.data, tr_data_strbed, update_bit
