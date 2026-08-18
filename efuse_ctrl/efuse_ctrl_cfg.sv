@@ -64,32 +64,33 @@ class efuse_ctrl_cfg extends uvm_object;
   // 0 = allow public master secure region access, 1 = prohibit
   rand bit top_acc_sec_region_bit = 1'b0;
 
-  // 128-bit MODE_KEY raw eFuse data stored at APB offsets 0x04/0x08/0x0C/0x10.
+  // 128-bit MODE_KEY raw eFuse data stored at EFUSE_CE_MODEL_KEY_ADDR (0x04/0x08/0x0C/0x10).
   // This is the raw (LFSR-encoded) value held in the fuse; on load to SRAM it is
   // LFSR-decoded (except an all-zero raw word, which loads as 0).
   bit [127:0] mode_key_efuse_data;
 
-  // 128-bit DEVICE_KEY raw eFuse data stored at APB offsets 0x18/0x1C/0x20/0x24.
+  // 128-bit DEVICE_KEY raw eFuse data stored at EFUSE_CE_DEVICE_KEY_ADDR (0x18/0x1C/0x20/0x24).
   // Same raw-in-fuse / LFSR-decoded-to-SRAM semantics as mode_key_efuse_data.
   bit [127:0] device_key_efuse_data;
 
-  // DCU_EN lock bits (32-bit x 4 words) starting at APB offset 0x90
+  // DCU_EN lock bits (32-bit x 4 words) starting at EFUSE_TOP_REGION_RES_2_ADDR (0x88)
   bit [31:0] dcu_en_lock_bit [4];
 
   // APB public master non-eFuse register addresses that deny NON_SECURE access.
   // Read returns 0 with pslverr=0; writes are ignored.
   bit [31:0] non_secure_deny_addr [9];
 
-  // Boot configuration selection value at APB offset 0xA0 bit[31]
+  // Boot config valid bit (alias of boot_sel_pin valid) at REGION_RES_3
+  // APB offset EFUSE_TOP_REGION_RES_3_ADDR, bit[BOOT_CFG_VLD_BIT_MAP]
   bit boot_cfg_vld = 1'b0;
 
-  // ROM patch hit vector at APB offset 0x13C
+  // ROM patch hit vector at EFUSE_TOP_REGION_RES_7_ADDR (0x13C)
   bit [31:0] rom_patch_hit;
 
-  // ROM patch addresses (16-bit x 32 entries) starting at APB offset 0x140
+  // ROM patch addresses (16-bit x 32 entries) starting at EFUSE_TOP_REGION_RES_7_ADDR + 0x4 (0x140)
   bit [15:0] rom_patch_addr [32];
 
-  // ROM patch data (32-bit x 32 entries) starting at APB offset 0x180
+  // ROM patch data (32-bit x 32 entries) starting at EFUSE_TOP_REGION_RES_7_ADDR + 0x44 (0x180)
   bit [31:0] rom_patch_data [32];
 
   // 1 = enable PSLVERR checking in scoreboard, 0 = skip PSLVERR checks
@@ -130,7 +131,12 @@ class efuse_ctrl_cfg extends uvm_object;
   function bit addr_hit(bit [31:0] efuse_offset);
     bit [31:0] word_addr;
     word_addr = {efuse_offset[31:2], 2'b00};  // 4-byte align
-    return (word_addr inside {32'h48, 32'h7C, 32'h80, 32'h90, 32'hA0, 32'hA8});
+    return (word_addr inside {EFUSE_CE_LCS_STATE_ADDR,
+                              EFUSE_TOP_WR_ACC_DIS_ADDR,
+                              EFUSE_TOP_RD_ACC_DIS_ADDR,
+                              EFUSE_TOP_REGION_RES_2_ADDR,
+                              EFUSE_TOP_REGION_RES_3_ADDR,
+                              EFUSE_TOP_REGION_RES_4_ADDR + 32'h08});
   endfunction
 
   //--------------------------------------------------------------------------
@@ -142,14 +148,14 @@ class efuse_ctrl_cfg extends uvm_object;
   // stay consistent with cfg; all other bits are left unchanged. Returns the
   // patched data.
   //
-  // Offset / bit map (logical byte offset):
-  //   0x48 [3:0]  lcs_state
-  //   0x7C [7:0]  top_region_wr_disable
-  //   0x80 [7:0]  top_region_rd_disable
-  //   0x90 [0]    dcu_en_lock_bit[0][0]
-  //   0xA0 [31]   boot_cfg_vld
-  //   0xA8 [10]   shadow_sram_acc_bit
-  //   0xA8 [9]    top_acc_sec_region_bit
+  // Offset / bit map (logical byte offset, sourced from efuse_mapping.xlsx):
+  //   0x48 [3:0]                         lcs_state
+  //   0x74 [7:0]                         top_region_wr_disable
+  //   0x78 [7:0]                         top_region_rd_disable
+  //   0x88 [0]                           dcu_en_lock_bit[0][0]
+  //   0x98 [15]                          boot_cfg_vld
+  //   0xA4 [1]  (feature_cfg bit[65])    shadow_sram_acc_bit
+  //   0xA4 [0]  (feature_cfg bit[64])    top_acc_sec_region_bit
   //--------------------------------------------------------------------------
   function bit [31:0] cfg_efuse_bit_unchange(bit [31:0] efuse_offset, bit [31:0] data);
     bit [31:0] word_addr;
@@ -163,15 +169,21 @@ class efuse_ctrl_cfg extends uvm_object;
     word_addr = {efuse_offset[31:2], 2'b00};  // 4-byte align
 
     case (word_addr)
-      32'h48: result[3:0]  = 4'(lcs_state);
-      32'h7C: result[7:0]  = top_region_wr_disable;
-      32'h80: result[7:0]  = top_region_rd_disable;
-      32'h90: result[0]    = dcu_en_lock_bit[0][0];
-      32'hA0: result[31]   = boot_cfg_vld;
-      32'hA8: begin
-        result[10] = shadow_sram_acc_bit;
-        result[9]  = top_acc_sec_region_bit;
-      end
+      EFUSE_CE_LCS_STATE_ADDR:
+        result[3:0]  = 4'(lcs_state);
+      EFUSE_TOP_WR_ACC_DIS_ADDR:
+        result[7:0]  = top_region_wr_disable;
+      EFUSE_TOP_RD_ACC_DIS_ADDR:
+        result[7:0]  = top_region_rd_disable;
+      EFUSE_TOP_REGION_RES_2_ADDR:
+        result[0]    = dcu_en_lock_bit[0][0];
+      EFUSE_TOP_REGION_RES_3_ADDR:
+        result[15]   = boot_cfg_vld;
+      EFUSE_TOP_REGION_RES_4_ADDR + 32'h08:  // word 2 of feature_cfg = eFuse Feature CFG
+        begin
+          result[1] = shadow_sram_acc_bit;     // bit[65] -> word 2 bit[1]
+          result[0] = top_acc_sec_region_bit;  // bit[64] -> word 2 bit[0]
+        end
       default: ; // unreachable (addr_hit already filtered)
     endcase
 

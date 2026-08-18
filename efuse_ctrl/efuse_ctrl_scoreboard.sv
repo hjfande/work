@@ -85,33 +85,37 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
   localparam bit [31:0] EFUSE_BASE_ADDR = 32'h1000;
 
   // eFuse logical address range: [0x00, 0x200)
-  localparam bit [31:0] SECURE_REGION_END = 32'h7C;
+  localparam bit [31:0] SECURE_REGION_END = EFUSE_TOP_WR_ACC_DIS_ADDR;
   localparam bit [31:0] EFUSE_SIZE        = 32'h200;
 
-  // WR_RD_ACC_DIS region byte start address
-  localparam bit [31:0] WR_RD_ACC_DIS_START = 32'h7C;
+  // WR_ACC_DIS / RD_ACC_DIS region byte start addresses
+  localparam bit [31:0] WR_ACC_DIS_START = EFUSE_TOP_WR_ACC_DIS_ADDR;
+  localparam bit [31:0] RD_ACC_DIS_START = EFUSE_TOP_RD_ACC_DIS_ADDR;
 
   // LCS_STATE region byte start address
-  localparam bit [31:0] LCS_STATE_START = 32'h48;
+  localparam bit [31:0] LCS_STATE_START = EFUSE_CE_LCS_STATE_ADDR;
 
   // MODE_KEY / DEVICE_KEY region byte start addresses
-  localparam bit [31:0] MODE_KEY_START   = 32'h04;
-  localparam bit [31:0] DEVICE_KEY_START = 32'h18;
+  localparam bit [31:0] MODE_KEY_START   = EFUSE_CE_MODEL_KEY_ADDR;
+  localparam bit [31:0] DEVICE_KEY_START = EFUSE_CE_DEVICE_KEY_ADDR;
 
-  // DCU_EN lock bit region byte start address
-  localparam bit [31:0] DCU_EN_LOCK_BIT_START = 32'h90;
+  // DCU_EN lock bit region byte start address (REGION_RES_2, 4 words)
+  localparam bit [31:0] DCU_EN_LOCK_BIT_START = EFUSE_TOP_REGION_RES_2_ADDR;
 
-  // Boot configuration byte start address
-  localparam bit [31:0] BOOT_CFG_START        = 32'hA0;
+  // Boot configuration byte start address (REGION_RES_3)
+  localparam bit [31:0] BOOT_CFG_START        = EFUSE_TOP_REGION_RES_3_ADDR;
 
-  // ROM patch region byte start addresses
-  localparam bit [31:0] ROM_PATCH_HIT_START   = 32'h13C;
-  localparam bit [31:0] ROM_PATCH_ADDR_START  = 32'h140;
-  localparam bit [31:0] ROM_PATCH_DATA_START  = 32'h180;
+  // Feature cfg eFuse Feature CFG word offset (REGION_RES_4 + 2 words, bit[64:71])
+  localparam bit [31:0] EFUSE_FEATURE_CFG_WORD2 = EFUSE_TOP_REGION_RES_4_ADDR + 32'h08;
+
+  // ROM patch region byte start addresses (REGION_RES_7 and its sub-fields)
+  localparam bit [31:0] ROM_PATCH_HIT_START   = EFUSE_TOP_REGION_RES_7_ADDR;
+  localparam bit [31:0] ROM_PATCH_ADDR_START  = EFUSE_TOP_REGION_RES_7_ADDR + 32'h04;
+  localparam bit [31:0] ROM_PATCH_DATA_START  = EFUSE_TOP_REGION_RES_7_ADDR + 32'h44;
   localparam int        ROM_PATCH_NUM         = 32;
 
   // Boot configuration bit size (low bits of boot_strap_pin_d / expect_boot_latch_pin)
-  localparam int        BOOT_CFG_BIT_SIZE     = 8;
+  localparam int        BOOT_CFG_BIT_SIZE     = REGION_3_SIGNAL_SIZE_BOOT_CFG_BIT;
 
   function new(string name = "efuse_ctrl_scoreboard", uvm_component parent);
     super.new(name, parent);
@@ -320,8 +324,8 @@ class efuse_ctrl_scoreboard extends uvm_scoreboard;
 
   //==========================================================================
   // Utility: Get region-4 control bits from REF_SRAM (1=prohibit, 0=allow)
-  // shadow_sram_acc_bit    : region 4 bit 41 -> APB 0xA8 bit[9]
-  // top_acc_sec_region_bit : region 4 bit 42 -> APB 0xA8 bit[10]
+  // shadow_sram_acc_bit    : feature_cfg bit[SHADOW_SRAM_ACC_BIT_MAP] -> EFUSE_FEATURE_CFG_WORD2 bit[SHADOW_SRAM_ACC_BIT_MAP % 32]
+  // top_acc_sec_region_bit : feature_cfg bit[TOP_ACC_SEC_REGION_BIT_MAP] -> EFUSE_FEATURE_CFG_WORD2 bit[TOP_ACC_SEC_REGION_BIT_MAP % 32]
   //==========================================================================
   extern task get_shadow_sram_acc_bit(output bit val);
   extern task get_top_acc_sec_region_bit(output bit val);
@@ -731,7 +735,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     cfg.initial_done = 1'b1;
   end
 
-  // MODE_KEY: 128-bit raw eFuse data at APB offsets 0x04, 0x08, 0x0C, 0x10.
+  // MODE_KEY: 128-bit raw eFuse data at EFUSE_CE_MODEL_KEY_ADDR (4 words).
   // Only MODE_KEY/DEVICE_KEY use the LFSR transform. The raw value is written to
   // FUSE as-is; on load to SRAM it is LFSR-decoded, except an all-zero raw word
   // (unburned key) which loads as 0 (decode of 0 would be non-zero).
@@ -747,7 +751,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     end
   end
 
-  // DEVICE_KEY: 128-bit raw eFuse data at APB offsets 0x18, 0x1C, 0x20, 0x24.
+  // DEVICE_KEY: 128-bit raw eFuse data at EFUSE_CE_DEVICE_KEY_ADDR (4 words).
   // Same raw-to-FUSE / LFSR-decode-to-SRAM semantics as MODE_KEY above.
   for (int i = 0; i < 4; i++) begin
     bit [31:0] key_word = cfg.device_key_efuse_data[i*32 +: 32];
@@ -761,7 +765,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     end
   end
 
-  // LCS_STATE: low 4 bits at APB offset 0x48
+  // LCS_STATE: low 4 bits at EFUSE_CE_LCS_STATE_ADDR (0x48)
   read_word(LCS_STATE_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[3:0] = 4'(cfg.lcs_state);
   write_word(LCS_STATE_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
@@ -771,27 +775,27 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     write_word(LCS_STATE_START, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // Write access disable: low 8 bits at APB offset 0x7C
-  read_word(WR_RD_ACC_DIS_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  // Write access disable: low 8 bits at EFUSE_TOP_WR_ACC_DIS_ADDR (0x74)
+  read_word(WR_ACC_DIS_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_wr_disable;
-  write_word(WR_RD_ACC_DIS_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_ACC_DIS_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(WR_ACC_DIS_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   if (enable_sram_modify) begin
-    write_word(WR_RD_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
-    write_word(WR_RD_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
+    write_word(WR_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(WR_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // Read access disable: low 8 bits at APB offset 0x80
-  read_word(WR_RD_ACC_DIS_START + 4, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  // Read access disable: low 8 bits at EFUSE_TOP_RD_ACC_DIS_ADDR (0x78)
+  read_word(RD_ACC_DIS_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data[7:0] = cfg.top_region_rd_disable;
-  write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  write_word(RD_ACC_DIS_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(RD_ACC_DIS_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   if (enable_sram_modify) begin
-    write_word(WR_RD_ACC_DIS_START + 4, word_data, DUT_SRAM, FORCE_WRITE);
-    write_word(WR_RD_ACC_DIS_START + 4, word_data, REF_SRAM, FORCE_WRITE);
+    write_word(RD_ACC_DIS_START, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(RD_ACC_DIS_START, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // dcu_en_lock_bit at APB offsets 0x90, 0x94, 0x98, 0x9C
+  // dcu_en_lock_bit at EFUSE_TOP_REGION_RES_2_ADDR (4 words: 0x88-0x94)
   for (int i = 0; i < 4; i++) begin
     bit [31:0] lock_addr = DCU_EN_LOCK_BIT_START + i*4;
     bit [31:0] lock_word = cfg.dcu_en_lock_bit[i];
@@ -803,9 +807,9 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     end
   end
 
-  // boot_cfg_vld at APB offset 0xA0 bit[31]
+  // boot_cfg_vld at EFUSE_TOP_REGION_RES_3_ADDR (0x98) bit[BOOT_CFG_VLD_BIT_MAP]
   read_word(BOOT_CFG_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-  word_data[31] = cfg.boot_cfg_vld;
+  word_data[BOOT_CFG_VLD_BIT_MAP] = cfg.boot_cfg_vld;
   write_word(BOOT_CFG_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
   write_word(BOOT_CFG_START, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   if (enable_sram_modify) begin
@@ -813,19 +817,20 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     write_word(BOOT_CFG_START, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // shadow_sram_acc_bit at APB offset 0xA8 bit[10]
-  // top_acc_sec_region_bit at APB offset 0xA8 bit[9]
-  read_word(32'hA8, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
-  word_data[10] = cfg.shadow_sram_acc_bit;
-  word_data[9]  = cfg.top_acc_sec_region_bit;
-  write_word(32'hA8, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
-  write_word(32'hA8, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
+  // shadow_sram_acc_bit  at EFUSE_TOP_REGION_RES_4_ADDR+0x08 (0xA4) bit[SHADOW_SRAM_ACC_BIT_MAP % 32]
+  // top_acc_sec_region_bit at EFUSE_TOP_REGION_RES_4_ADDR+0x08 (0xA4) bit[TOP_ACC_SEC_REGION_BIT_MAP % 32]
+  // (feature_cfg bit[65] / bit[64] -> word 2, bit[1] / bit[0])
+  read_word(EFUSE_FEATURE_CFG_WORD2, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
+  word_data[SHADOW_SRAM_ACC_BIT_MAP % 32] = cfg.shadow_sram_acc_bit;
+  word_data[TOP_ACC_SEC_REGION_BIT_MAP % 32] = cfg.top_acc_sec_region_bit;
+  write_word(EFUSE_FEATURE_CFG_WORD2, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
+  write_word(EFUSE_FEATURE_CFG_WORD2, word_data, REF_FUSE, FORCE_WRITE, 1'b1);
   if (enable_sram_modify) begin
-    write_word(32'hA8, word_data, DUT_SRAM, FORCE_WRITE);
-    write_word(32'hA8, word_data, REF_SRAM, FORCE_WRITE);
+    write_word(EFUSE_FEATURE_CFG_WORD2, word_data, DUT_SRAM, FORCE_WRITE);
+    write_word(EFUSE_FEATURE_CFG_WORD2, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // ROM patch hit vector at APB offset 0x13C
+  // ROM patch hit vector at EFUSE_TOP_REGION_RES_7_ADDR (0x13C)
   read_word(ROM_PATCH_HIT_START, word_data, pri_data, shd_data, DUT_FUSE, 1'b1);
   word_data = cfg.rom_patch_hit;
   write_word(ROM_PATCH_HIT_START, word_data, DUT_FUSE, FORCE_WRITE, 1'b1);
@@ -835,7 +840,7 @@ task efuse_ctrl_scoreboard::apply_cfg_to_fuse_sram(input bit enable_sram_modify 
     write_word(ROM_PATCH_HIT_START, word_data, REF_SRAM, FORCE_WRITE);
   end
 
-  // ROM patch addresses (16-bit x 32 entries, packed 2 per word) at APB offset 0x140
+  // ROM patch addresses (16-bit x 32 entries, packed 2 per word) at EFUSE_TOP_REGION_RES_7_ADDR + 0x4 (0x140)
   for (int i = 0; i < ROM_PATCH_NUM/2; i++) begin
     bit [31:0] addr_offset = ROM_PATCH_ADDR_START + i*4;
     bit [31:0] patch_addr_word = {cfg.rom_patch_addr[2*i+1], cfg.rom_patch_addr[2*i]};
@@ -1033,33 +1038,35 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   // Drive margin_read_mode to vif so backdoor reads use the current mode
   efuse_ctrl_vif.margin_read_mode = reg_model.efuse_ctrl_acc_cfg.margin_read_mode.get();
 
-  // expect_device_id_bit: DUT_SRAM offset 0x8C, 32bit
-  read_word(32'h8C, efuse_ctrl_vif.expect_device_id_bit, pri_tmp, shd_tmp, DUT_SRAM);
+  // expect_device_id_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_0_ADDR + 0x08 (0x84), 32bit
+  //   (REGION_RES_1 = PartNum ID, 1 word)
+  read_word(EFUSE_TOP_REGION_RES_1_ADDR, efuse_ctrl_vif.expect_device_id_bit, pri_tmp, shd_tmp, DUT_SRAM);
 
-  // expect_feature_cfg_bit: DUT_SRAM offset 0xA4, 64bit
-  read_word(32'hA4, feat_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hA8, feat_w1, pri_tmp, shd_tmp, DUT_SRAM);
+  // expect_feature_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_4_ADDR (0x9C), 64bit
+  read_word(EFUSE_TOP_REGION_RES_4_ADDR + 32'h00, feat_w0, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_4_ADDR + 32'h04, feat_w1, pri_tmp, shd_tmp, DUT_SRAM);
   efuse_ctrl_vif.expect_feature_cfg_bit = {feat_w1, feat_w0};
 
-  // expect_memory_cfg_bit: DUT_SRAM offset 0xAC, 96bit
-  read_word(32'hAC, mem_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hB0, mem_w1, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hB4, mem_w2, pri_tmp, shd_tmp, DUT_SRAM);
-  efuse_ctrl_vif.expect_memory_cfg_bit = {mem_w2, mem_w1, mem_w0};
+  // expect_memory_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_5_ADDR (0xA8), 64bit
+  //   REGION_RES_5 = memory_cfg region (2 words = 64 bits)
+  read_word(EFUSE_TOP_REGION_RES_5_ADDR + 32'h00, mem_w0, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_5_ADDR + 32'h04, mem_w1, pri_tmp, shd_tmp, DUT_SRAM);
+  efuse_ctrl_vif.expect_memory_cfg_bit = {mem_w1, mem_w0};
 
-  // expect_analog_calibre_bit: DUT_SRAM offset 0xB8, 256bit
-  read_word(32'hB8, ana_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hBC, ana_w1, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hC0, ana_w2, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hC4, ana_w3, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hC8, ana_w4, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hCC, ana_w5, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hD0, ana_w6, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(32'hD4, ana_w7, pri_tmp, shd_tmp, DUT_SRAM);
+  // expect_analog_calibre_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_6_ADDR (0xB0), 256bit
+  //   REGION_RES_6 = Analog Calibration Region (first 8 words = 256 bits used by this signal)
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h00, ana_w0, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h04, ana_w1, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h08, ana_w2, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h0C, ana_w3, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h10, ana_w4, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h14, ana_w5, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h18, ana_w6, pri_tmp, shd_tmp, DUT_SRAM);
+  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h1C, ana_w7, pri_tmp, shd_tmp, DUT_SRAM);
   efuse_ctrl_vif.expect_analog_calibre_bit = {ana_w7, ana_w6, ana_w5, ana_w4, ana_w3, ana_w2, ana_w1, ana_w0};
 
-  // boot_cfg_bit: DUT_SRAM offset 0xA0, 32bit
-  read_word(32'hA0, boot_cfg_bit, pri_tmp, shd_tmp, DUT_SRAM);
+  // boot_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_3_ADDR (0x98), 32bit
+  read_word(BOOT_CFG_START, boot_cfg_bit, pri_tmp, shd_tmp, DUT_SRAM);
 
   // LCS_STATE: DUT_SRAM offset 0x48, low 4 bits
   read_word(LCS_STATE_START, lcs_state_word, pri_tmp, shd_tmp, DUT_SRAM);
@@ -1094,10 +1101,10 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
       dcu_en0 = reg_model.efuse_dcu_en0.get();
       dcu_en_src = {dcu_en3, dcu_en2, dcu_en1, dcu_en0};
 
-      read_word(32'h90, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h94, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h98, dcu_en_lock_w2, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(32'h9C, dcu_en_lock_w3, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(DCU_EN_LOCK_BIT_START + 32'h00, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(DCU_EN_LOCK_BIT_START + 32'h04, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(DCU_EN_LOCK_BIT_START + 32'h08, dcu_en_lock_w2, pri_tmp, shd_tmp, DUT_SRAM);
+      read_word(DCU_EN_LOCK_BIT_START + 32'h0C, dcu_en_lock_w3, pri_tmp, shd_tmp, DUT_SRAM);
       dcu_en_lock = {dcu_en_lock_w3, dcu_en_lock_w2, dcu_en_lock_w1, dcu_en_lock_w0};
 
       efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
@@ -1415,14 +1422,15 @@ task efuse_ctrl_scoreboard::test_mode_good_trans_checker_and_ref_update(
 endtask
 
 function int efuse_ctrl_scoreboard::get_region_res_index(bit [31:0] logic_addr);
-  if (logic_addr >= 32'h84 && logic_addr < 32'h8C) return 0;
-  if (logic_addr >= 32'h8C && logic_addr < 32'h90) return 1;
-  if (logic_addr >= 32'h90 && logic_addr < 32'hA0) return 2;
-  if (logic_addr >= 32'hA0 && logic_addr < 32'hA4) return 3;
-  if (logic_addr >= 32'hA4 && logic_addr < 32'hAC) return 4;
-  if (logic_addr >= 32'hAC && logic_addr < 32'hB8) return 5;
-  if (logic_addr >= 32'hB8 && logic_addr < 32'h13C) return 6;
-  if (logic_addr >= 32'h13C && logic_addr < 32'h200) return 7;
+  // Region boundaries sourced from efuse_mapping.xlsx / AON_EFUSE
+  if (logic_addr >= EFUSE_TOP_REGION_RES_0_ADDR && logic_addr < EFUSE_TOP_REGION_RES_1_ADDR) return 0;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_1_ADDR && logic_addr < EFUSE_TOP_REGION_RES_2_ADDR) return 1;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_2_ADDR && logic_addr < EFUSE_TOP_REGION_RES_3_ADDR) return 2;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_3_ADDR && logic_addr < EFUSE_TOP_REGION_RES_4_ADDR) return 3;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_4_ADDR && logic_addr < EFUSE_TOP_REGION_RES_5_ADDR) return 4;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_5_ADDR && logic_addr < EFUSE_TOP_REGION_RES_6_ADDR) return 5;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_6_ADDR && logic_addr < EFUSE_TOP_REGION_RES_7_ADDR) return 6;
+  if (logic_addr >= EFUSE_TOP_REGION_RES_7_ADDR && logic_addr < EFUSE_SIZE)             return 7;
   return -1;
 endfunction
 
