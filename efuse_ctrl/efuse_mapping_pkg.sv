@@ -73,8 +73,25 @@ package efuse_mapping_pkg;
   // REGION_RES_5 (memory_cfg): 64-bit output
   parameter int REGION_5_SIGNAL_SIZE_MEM_CFG_BIT     = 64;
 
-  // REGION_RES_6 (analog calibration): 96-bit output
-  parameter int REGION_6_SIGNAL_SIZE_ANALOG_CALIBRE_BIT = 96;
+  // REGION_RES_6 (analog calibration): 64-bit output
+  parameter int REGION_6_SIGNAL_SIZE_ANALOG_CALIBRE_BIT = 64;
+
+  //==========================================================================
+  // Region word count parameters
+  //
+  // Number of 32-bit words needed to hold each region's output signal.
+  // Computed as ceil(SIGNAL_SIZE / 32).
+  //==========================================================================
+
+  parameter int REGION_1_SIGNAL_WORDS = (REGION_1_SIGNAL_SIZE_DEVICE_ID_BIT + 31) / 32;   // 1
+  parameter int REGION_2_SIGNAL_WORDS = (REGION_2_SIGNAL_SIZE_DCU_EN_BIT + 31) / 32;       // 1
+  parameter int REGION_3_SIGNAL_WORDS = (REGION_3_SIGNAL_SIZE_BOOT_CFG_BIT + 31) / 32;     // 1
+  parameter int REGION_4_SIGNAL_WORDS = (REGION_4_SIGNAL_SIZE_FEATURE_CFG_BIT + 31) / 32;  // 3
+  parameter int REGION_5_SIGNAL_WORDS = (REGION_5_SIGNAL_SIZE_MEM_CFG_BIT + 31) / 32;       // 2
+  parameter int REGION_6_SIGNAL_WORDS = (REGION_6_SIGNAL_SIZE_ANALOG_CALIBRE_BIT + 31) / 32; // 2
+
+  // DCU_EN lock region total size (4 words = 128 bits), used for full lock bit array
+  parameter int DCU_EN_LOCK_WORDS = 4;
 
   //==========================================================================
   // Bit / field mapping parameters

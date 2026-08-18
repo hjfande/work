@@ -995,24 +995,11 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   bit [3:0]  lcs_state;
   bit [31:0] pri_tmp;
   bit [31:0] shd_tmp;
-  bit [31:0] feat_w0;
-  bit [31:0] feat_w1;
-  bit [31:0] mem_w0;
-  bit [31:0] mem_w1;
-  bit [31:0] mem_w2;
-  bit [31:0] ana_w0;
-  bit [31:0] ana_w1;
-  bit [31:0] ana_w2;
-  bit [31:0] ana_w3;
-  bit [31:0] ana_w4;
-  bit [31:0] ana_w5;
-  bit [31:0] ana_w6;
-  bit [31:0] ana_w7;
+  bit [31:0] feat_words  [REGION_4_SIGNAL_WORDS];
+  bit [31:0] mem_words   [REGION_5_SIGNAL_WORDS];
+  bit [31:0] ana_words   [REGION_6_SIGNAL_WORDS];
   bit [31:0] boot_cfg_bit;
-  bit [31:0] dcu_en_lock_w0;
-  bit [31:0] dcu_en_lock_w1;
-  bit [31:0] dcu_en_lock_w2;
-  bit [31:0] dcu_en_lock_w3;
+  bit [31:0] dcu_en_lock_words [DCU_EN_LOCK_WORDS];
   bit [127:0] dcu_en_src;
   bit [127:0] dcu_en_lock;
 
@@ -1039,28 +1026,41 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
   //   (REGION_RES_1 = PartNum ID, 1 word)
   read_word(EFUSE_TOP_REGION_RES_1_ADDR, efuse_ctrl_vif.expect_device_id_bit, pri_tmp, shd_tmp, DUT_SRAM);
 
-  // expect_feature_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_4_ADDR (0x9C), 64bit
-  read_word(EFUSE_TOP_REGION_RES_4_ADDR + 32'h00, feat_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_4_ADDR + 32'h04, feat_w1, pri_tmp, shd_tmp, DUT_SRAM);
-  efuse_ctrl_vif.expect_feature_cfg_bit = {feat_w1, feat_w0};
+  // expect_feature_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_4_ADDR, REGION_4_SIGNAL_SIZE_FEATURE_CFG_BIT bits
+  for (int i = 0; i < REGION_4_SIGNAL_WORDS; i++) begin
+    read_word(EFUSE_TOP_REGION_RES_4_ADDR + i*4, feat_words[i], pri_tmp, shd_tmp, DUT_SRAM);
+  end
+  begin
+    bit [REGION_4_SIGNAL_SIZE_FEATURE_CFG_BIT-1:0] feat_val;
+    for (int i = 0; i < REGION_4_SIGNAL_WORDS; i++) begin
+      feat_val[i*32 +: 32] = feat_words[i];
+    end
+    efuse_ctrl_vif.expect_feature_cfg_bit = feat_val;
+  end
 
-  // expect_memory_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_5_ADDR (0xA8), 64bit
-  //   REGION_RES_5 = memory_cfg region (2 words = 64 bits)
-  read_word(EFUSE_TOP_REGION_RES_5_ADDR + 32'h00, mem_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_5_ADDR + 32'h04, mem_w1, pri_tmp, shd_tmp, DUT_SRAM);
-  efuse_ctrl_vif.expect_memory_cfg_bit = {mem_w1, mem_w0};
+  // expect_memory_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_5_ADDR, REGION_5_SIGNAL_SIZE_MEM_CFG_BIT bits
+  for (int i = 0; i < REGION_5_SIGNAL_WORDS; i++) begin
+    read_word(EFUSE_TOP_REGION_RES_5_ADDR + i*4, mem_words[i], pri_tmp, shd_tmp, DUT_SRAM);
+  end
+  begin
+    bit [REGION_5_SIGNAL_SIZE_MEM_CFG_BIT-1:0] mem_val;
+    for (int i = 0; i < REGION_5_SIGNAL_WORDS; i++) begin
+      mem_val[i*32 +: 32] = mem_words[i];
+    end
+    efuse_ctrl_vif.expect_memory_cfg_bit = mem_val;
+  end
 
-  // expect_analog_calibre_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_6_ADDR (0xB0), 256bit
-  //   REGION_RES_6 = Analog Calibration Region (first 8 words = 256 bits used by this signal)
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h00, ana_w0, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h04, ana_w1, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h08, ana_w2, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h0C, ana_w3, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h10, ana_w4, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h14, ana_w5, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h18, ana_w6, pri_tmp, shd_tmp, DUT_SRAM);
-  read_word(EFUSE_TOP_REGION_RES_6_ADDR + 32'h1C, ana_w7, pri_tmp, shd_tmp, DUT_SRAM);
-  efuse_ctrl_vif.expect_analog_calibre_bit = {ana_w7, ana_w6, ana_w5, ana_w4, ana_w3, ana_w2, ana_w1, ana_w0};
+  // expect_analog_calibre_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_6_ADDR, REGION_6_SIGNAL_SIZE_ANALOG_CALIBRE_BIT bits
+  for (int i = 0; i < REGION_6_SIGNAL_WORDS; i++) begin
+    read_word(EFUSE_TOP_REGION_RES_6_ADDR + i*4, ana_words[i], pri_tmp, shd_tmp, DUT_SRAM);
+  end
+  begin
+    bit [REGION_6_SIGNAL_SIZE_ANALOG_CALIBRE_BIT-1:0] ana_val;
+    for (int i = 0; i < REGION_6_SIGNAL_WORDS; i++) begin
+      ana_val[i*32 +: 32] = ana_words[i];
+    end
+    efuse_ctrl_vif.expect_analog_calibre_bit = ana_val;
+  end
 
   // boot_cfg_bit: DUT_SRAM offset EFUSE_TOP_REGION_RES_3_ADDR (0x98), 32bit
   read_word(BOOT_CFG_START, boot_cfg_bit, pri_tmp, shd_tmp, DUT_SRAM);
@@ -1098,11 +1098,12 @@ task efuse_ctrl_scoreboard::update_vif_sva_expect_val();
       dcu_en0 = reg_model.efuse_dcu_en0.get();
       dcu_en_src = {dcu_en3, dcu_en2, dcu_en1, dcu_en0};
 
-      read_word(DCU_EN_LOCK_BIT_START + 32'h00, dcu_en_lock_w0, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(DCU_EN_LOCK_BIT_START + 32'h04, dcu_en_lock_w1, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(DCU_EN_LOCK_BIT_START + 32'h08, dcu_en_lock_w2, pri_tmp, shd_tmp, DUT_SRAM);
-      read_word(DCU_EN_LOCK_BIT_START + 32'h0C, dcu_en_lock_w3, pri_tmp, shd_tmp, DUT_SRAM);
-      dcu_en_lock = {dcu_en_lock_w3, dcu_en_lock_w2, dcu_en_lock_w1, dcu_en_lock_w0};
+      for (int i = 0; i < DCU_EN_LOCK_WORDS; i++) begin
+        read_word(DCU_EN_LOCK_BIT_START + i*4, dcu_en_lock_words[i], pri_tmp, shd_tmp, DUT_SRAM);
+      end
+      for (int i = 0; i < DCU_EN_LOCK_WORDS; i++) begin
+        dcu_en_lock[i*32 +: 32] = dcu_en_lock_words[i];
+      end
 
       efuse_ctrl_vif.expect_dcu_en_bit = (dcu_en_src | efuse_ctrl_vif.dcu_en_dd) & ~dcu_en_lock;
       efuse_ctrl_vif.dcu_en_dd_updated = dcu_en_dd_updated;
